@@ -865,7 +865,7 @@ function autoSampleBgColor(ctx) {
 function getZoneText(zone, row) {
   const key = zone.key;
   if (key === 'hindi') {
-    return toHindi(String(row[colAssign['name']] || ''));
+    return String(row[colAssign['hindi']] || '');
   } else if (colAssign[key]) {
     let text = String(row[colAssign[key]] ?? '');
     if (key === 'price') {
