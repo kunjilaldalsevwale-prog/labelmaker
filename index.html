@@ -689,7 +689,7 @@ function guessCol(key) {
 function buildColMapper() {
   const grid = document.getElementById('colMapGrid');
   grid.innerHTML = '';
-  const keys = [...new Set(zones.map(z => z.key))].filter(k => k !== 'hindi');
+  const keys = [...new Set(zones.map(z => z.key))];
   if (!keys.length || !excelHeaders.length) return;
   keys.forEach(k => {
     if (!colAssign[k]) colAssign[k] = guessCol(k);
