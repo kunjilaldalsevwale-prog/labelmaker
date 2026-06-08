@@ -707,8 +707,9 @@ function clearExcel() {
 }
 
 function guessCol(key) {
-  const pats = {
-    name:   /name|product|item|desc/i,
+ const pats = {
+    name:   /^item name$/i,
+    hindi:  /hindi/i,
     price:  /price|rate|amount|cost|sell|mrp/i,
     weight: /weight|wt|net|gram|gm|kg|pcs|pack/i,
     sku:    /sku|code|id|barcode/i,
@@ -721,7 +722,7 @@ function guessCol(key) {
 function buildColMapper() {
   const grid = document.getElementById('colMapGrid');
   grid.innerHTML = '';
-  const keys = [...new Set(zones.map(z => z.key))].filter(k => k !== 'hindi');
+  const keys = [...new Set(zones.map(z => z.key))];
   if (!keys.length || !excelHeaders.length) return;
   keys.forEach(k => {
     if (!colAssign[k]) colAssign[k] = guessCol(k);
