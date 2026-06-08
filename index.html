@@ -359,7 +359,7 @@ body{font-family:'Raleway',sans-serif;background:var(--ivory);color:var(--text);
   <!-- CATEGORY NAV -->
   <div class="c-cat-nav">
     <div class="c-cat-header" onclick="toggleCatPanel()">
-      <span class="c-cat-header-text" id="active-cat-name">☰ &nbsp;MENU</span>
+      <span class="c-cat-header-text" id="active-cat-name">🏠 &nbsp;HOME</span>
       <span class="c-cat-header-arrow" id="cat-arrow">▼</span>
     </div>
     <div class="c-cat-panel" id="cat-panel">
@@ -824,7 +824,7 @@ function renderCustomer(){
   // SVG ornament for section headers
   const ornamentSVG = `<svg class="c-sec-ornament" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="30" height="30" stroke="#FBF5E6" stroke-width="1.5" transform="rotate(45 20 20)"/><rect x="10" y="10" width="20" height="20" stroke="#FBF5E6" stroke-width="1" transform="rotate(45 20 20)"/></svg>`;
 
-document.getElementById('active-cat-name').innerHTML='☰ &nbsp;MENU';
+document.getElementById('active-cat-name').innerHTML='🏠 &nbsp;HOME';
   cats.forEach((cat,ci)=>{
     // Build tile
     const tile=document.createElement('div');
@@ -835,7 +835,7 @@ document.getElementById('active-cat-name').innerHTML='☰ &nbsp;MENU';
       tile.classList.add('active');
       contentEl.querySelectorAll('.c-section').forEach(s=>s.classList.remove('active'));
       document.getElementById('csec-'+cat.id).classList.add('active');
-      document.getElementById('active-cat-name').innerHTML='☰ &nbsp;MENU';
+      document.getElementById('active-cat-name').innerHTML='🏠 &nbsp;HOME';
       document.getElementById('cat-panel').classList.remove('open');
       document.getElementById('cat-arrow').classList.remove('open');
       window.scrollTo({top:0,behavior:'smooth'});
