@@ -1116,7 +1116,7 @@ function getZoneText(zone, row) {
     let text = String(row[colAssign[key]] ?? '');
     if (key === 'price') {
       const num = parseFloat(text.replace(/[^\d.]/g, ''));
-      if (!isNaN(num)) text = `Rs. ${num.toLocaleString('en-IN', {minimumFractionDigits:2})}`;
+      if (!isNaN(num)) text = `Rs. ${Math.round(num).toLocaleString('en-IN')}/-`;
     }
     return text;
   }
