@@ -707,9 +707,9 @@ function clearExcel() {
 }
 
 function guessCol(key) {
- const pats = {
-    name:   /^item name$/i,
+  const pats = {
     hindi:  /hindi/i,
+    name:   /^item name$|^product name$|^english name$|^item$/i,
     price:  /price|rate|amount|cost|sell|mrp/i,
     weight: /weight|wt|net|gram|gm|kg|pcs|pack/i,
     sku:    /sku|code|id|barcode/i,
