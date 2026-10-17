@@ -1133,19 +1133,14 @@ async function renderLabel(canvas, row, maxFs, color) {
   ctx.clearRect(0, 0, designW, designH);
   ctx.drawImage(designImg, 0, 0, designW, designH);
 
-  // PRE-SAMPLE: get bg color for each zone from the clean template
-  // (must be done before any fills modify the canvas)
-  const zoneBgColors = zones.map(zone =>
-    sampleZoneBg(ctx, Math.round(zone.x), Math.round(zone.y),
-                      Math.round(zone.w), Math.round(zone.h))
-  );
-
   for (let zi=0; zi<zones.length; zi++) {
     const zone = zones[zi];
-    // Fill zone with its pre-sampled bg color
-    ctx.fillStyle = zone.bgColor || zoneBgColors[zi];
-    ctx.fillRect(Math.round(zone.x), Math.round(zone.y),
-                 Math.round(zone.w), Math.round(zone.h));
+    // Only fill bg if manually set by user — otherwise let template show through
+    if (zone.bgColor) {
+      ctx.fillStyle = zone.bgColor;
+      ctx.fillRect(Math.round(zone.x), Math.round(zone.y),
+                   Math.round(zone.w), Math.round(zone.h));
+    }
 
     const text = getZoneText(zone, row);
     if (!text) continue;
