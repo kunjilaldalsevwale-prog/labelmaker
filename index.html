@@ -192,7 +192,7 @@ select:focus{border-color:var(--accent)}
 .override-card-toggle{font-size:.7rem;color:var(--muted);transition:transform .2s}
 .override-card-body{padding:10px;display:none;flex-direction:column;gap:8px}
 .override-card-body.open{display:flex}
-.override-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.override-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px}
 .override-field label{display:block;font-size:.65rem;color:var(--muted);margin-bottom:3px;font-weight:500}
 .override-field input[type=number]{
   width:100%;background:var(--bg);border:1px solid var(--border);
@@ -788,7 +788,7 @@ function buildOverridePanel() {
           </div>
           <div class="override-field">
             <label>BG Color</label>
-            <input type="color" id="ov-bg-${i}" value="${zone.bgColor || document.getElementById('bgColor').value}"
+            <input type="color" id="ov-bg-${i}" value="${zone.bgColor || (document.getElementById('bgColor')||{value:'#ffffff'}).value}"
               oninput="setZoneOverride(${i},'bgColor',this.value)"/>
           </div>
           <div class="override-field">
@@ -838,6 +838,9 @@ function resetZoneOverride(i) {
   document.getElementById('ov-col-'+i).value = document.getElementById('textColor').value;
   const ffEl = document.getElementById('ov-ff-'+i);
   if (ffEl) ffEl.value = '';
+  zones[i].bgColor = null;
+  const bgEl = document.getElementById('ov-bg-'+i);
+  if (bgEl) bgEl.value = document.getElementById('bgColor').value;
 }
 
 // ═══════════════════════ HINDI TRANSLITERATION ═══════════════════════
