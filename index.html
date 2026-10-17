@@ -264,7 +264,7 @@ select:focus{border-color:var(--accent)}
       <div class="step-num" style="background:var(--amber,#f59e0b);color:#fff">✎</div>
       <div class="step-title">Fine-tune Zones</div>
     </div>
-    <p style="font-size:.72rem;color:var(--muted);margin-bottom:10px;line-height:1.5">Override font size, color or alignment per zone.</p>
+    <p style="font-size:.72rem;color:var(--muted);margin-bottom:10px;line-height:1.5">Set <b>different background color, font, size and text color</b> for each zone separately. Click a zone name to expand its settings.</p>
     <div class="zone-override-panel open" id="overridePanel"></div>
   </div>
 
@@ -312,19 +312,12 @@ select:focus{border-color:var(--accent)}
         <input type="color" id="textColor" value="#652e00"/>
       </div>
     </div>
-    <div style="margin-top:10px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
-        <div class="style-field" style="flex:1;margin:0">
-          <label>Zone Background Color</label>
-          <input type="color" id="bgColor" value="#fde7c0"/>
-        </div>
-        <div style="padding-top:16px">
-          <button onclick="autoDetectBg()" style="padding:6px 10px;background:var(--surf2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.7rem;cursor:pointer;white-space:nowrap" title="Auto-detect background color from your design">⚡ Auto</button>
-        </div>
-      </div>
-      <div style="font-size:.68rem;color:var(--muted);line-height:1.5">This fills over template placeholder text. Click ⚡ Auto to detect from your design, or pick manually.</div>
+    <div style="margin-top:10px;padding:8px 10px;background:var(--surf2);border-radius:8px;font-size:.72rem;color:var(--muted);line-height:1.6">
+      💡 To set a <b>different background color per zone</b>, go to <b>Fine-tune Zones</b> above → click a zone → change its <b>BG Color</b>. Each zone can have its own color.
     </div>
     <div style="margin-top:8px;font-size:.68rem;color:var(--muted);line-height:1.5">Font auto-scales to fit each zone. Set custom fonts per zone in Fine-tune Zones above.</div>
+    <!-- hidden bgColor kept for auto-detect fallback -->
+    <input type="color" id="bgColor" value="#fde7c0" style="display:none"/>
   </div>
 
 </div><!-- /sidebar-scroll -->
@@ -565,7 +558,8 @@ function renderZones() {
     const def = ZDEFS[z.key];
     const el  = document.createElement('div');
     el.className = 'z-rect';
-    el.style.cssText = `left:${z.x*sx}px;top:${z.y*sy}px;width:${z.w*sx}px;height:${z.h*sy}px;border-color:${def.color};background:${def.color}22`;
+    const bgShow = z.bgColor ? z.bgColor+'cc' : def.color+'22';
+    el.style.cssText = `left:${z.x*sx}px;top:${z.y*sy}px;width:${z.w*sx}px;height:${z.h*sy}px;border-color:${def.color};background:${bgShow}`;
     const lbl = document.createElement('span');
     lbl.className = 'z-lbl'; lbl.textContent = def.label; lbl.style.color = def.color;
     el.appendChild(lbl); ov.appendChild(el);
@@ -771,9 +765,9 @@ function buildOverridePanel() {
       <div class="override-card-head" onclick="toggleOverride(${i})">
         <div class="override-dot" style="background:${def.color}"></div>
         <span class="override-card-title">${def.label}</span>
-        <span class="override-card-toggle" id="ov-toggle-${i}">▸</span>
+        <span class="override-card-toggle" id="ov-toggle-${i}">▾</span>
       </div>
-      <div class="override-card-body" id="ov-body-${i}">
+      <div class="override-card-body open" id="ov-body-${i}">
         <div class="override-field" style="margin-bottom:6px">
             <label>🔤 Font Family</label>
             <select id="ov-ff-${i}" onchange="setZoneOverride(${i},'fontFamily',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:.75rem;padding:5px 7px">
@@ -825,6 +819,7 @@ function setZoneOverride(i, prop, val) {
   } else {
     zones[i][prop] = val || null;
   }
+  renderZones();
 }
 
 function resetZoneOverride(i) {
@@ -1150,7 +1145,8 @@ async function renderLabel(canvas, row, maxFs, color) {
     // Determine font family: zone override > default per type
     let ff;
     if (zone.fontFamily) {
-      // Load Google Font into canvas context
+      // Force-load Google Font so canvas can use it
+      try { await document.fonts.load(`700 40px '${zone.fontFamily}'`); } catch(e){}
       ff = `'${zone.fontFamily}', sans-serif`;
     } else if (isHindi && devaFontLoaded) {
       ff = 'NotoDevanagari';
