@@ -787,11 +787,13 @@ function buildOverridePanel() {
               min="6" max="200" oninput="setZoneOverride(${i},'fontSize',this.value)"/>
           </div>
           <div class="override-field">
-            <div class="override-field">
-  <label>BG Color</label>
-  <input type="color" id="ov-bg-${i}" value="${zone.bgColor || document.getElementById('bgColor').value}"
-    oninput="setZoneOverride(${i},'bgColor',this.value)"/>
-</div> value="${colVal || document.getElementById('textColor').value}"
+            <label>BG Color</label>
+            <input type="color" id="ov-bg-${i}" value="${zone.bgColor || document.getElementById('bgColor').value}"
+              oninput="setZoneOverride(${i},'bgColor',this.value)"/>
+          </div>
+          <div class="override-field">
+            <label>Text Color</label>
+            <input type="color" id="ov-col-${i}" value="${colVal || document.getElementById('textColor').value}"
               oninput="setZoneOverride(${i},'color',this.value)"/>
           </div>
           <div class="override-field">
@@ -831,9 +833,6 @@ function resetZoneOverride(i) {
   zones[i].color      = null;
   zones[i].align      = 'center';
   zones[i].fontFamily = null;
-  zones[i].bgColor = null;
-const bgEl = document.getElementById('ov-bg-'+i);
-if (bgEl) bgEl.value = document.getElementById('bgColor').value;
   document.getElementById('ov-fs-'+i).value  = '';
   document.getElementById('ov-al-'+i).value  = 'center';
   document.getElementById('ov-col-'+i).value = document.getElementById('textColor').value;
