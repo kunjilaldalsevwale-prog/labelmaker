@@ -1362,25 +1362,29 @@ async function renderLabel(canvas, row, maxFs, color) {
     let lines = [text];
     const hasOverride = !!zone.fontSize;
 
+    const maxH = Math.max(zone.h - 4, 10);
     if (!hasOverride) {
-      // Auto mode: try text at full font size first.
-      // zone.wrap = true means force wrap even if it fits on one line.
-      // Otherwise wrap only when text overflows width.
+      // Auto mode: shrink font until text fits both width AND height.
+      // Wraps to multiple lines only when needed.
       let guard = 0;
       while (fs > 8 && guard++ < 200) {
         ctx.font = `${fw} ${fs}px ${ff}`;
-        const fitsOneLine = ctx.measureText(text).width <= maxW;
-        if (fitsOneLine && !zone.wrap) {
-          lines = [text];
-          break;
+        const fitsWidth = ctx.measureText(text).width <= maxW;
+        const lineH1 = fs * 1.25;
+        if (fitsWidth && !zone.wrap) {
+          // Single line — check it fits height too
+          if (lineH1 <= maxH) { lines = [text]; break; }
+        } else {
+          // Wrap and check total height fits
+          lines = wrapText(ctx, text, maxW);
+          const totalH = lines.length * fs * 1.25;
+          if (totalH <= maxH) break;
         }
-        lines = wrapText(ctx, text, maxW);
-        const totalH = lines.length * fs * 1.25;
-        if (totalH <= zone.h - 4) break;
         fs -= 2;
       }
+      if (lines.length === 0) lines = [text]; // safety
     } else {
-      // Explicit font size set — wrap if forced or overflowing, never shrink
+      // Explicit font size set — wrap if overflowing width, never shrink
       ctx.font = `${fw} ${fs}px ${ff}`;
       if (!zone.wrap && ctx.measureText(text).width <= maxW) {
         lines = [text];
