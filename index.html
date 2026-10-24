@@ -678,10 +678,7 @@ function buildCanvas(dataUrl) {
   ov.id = 'zoneOv'; ov.className = 'zone-overlay';
   inner.appendChild(ov);
 
-  img.addEventListener('mousedown',  onMD);
-  img.addEventListener('mousemove',  onMM);
-  img.addEventListener('mouseup',    onMU);
-  img.addEventListener('mouseleave', onMU);
+  img.addEventListener('mousedown', onMD);
 
   // Touch support
   img.addEventListener('touchstart', e => { const t = e.touches[0]; onMD({clientX:t.clientX,clientY:t.clientY,preventDefault:()=>e.preventDefault()}); }, {passive:false});
@@ -726,22 +723,33 @@ function imgCoords(e) {
 
 function onMD(e) {
   if (!activeZone) return;
-  e.preventDefault(); isDragging = true;
+  e.preventDefault();
+  isDragging = true;
   const c = imgCoords(e);
   dragStart = { nx:c.nx, ny:c.ny, px:c.px, py:c.py };
   drawEl = document.createElement('div');
   drawEl.className = 'draw-rect-el';
   drawEl.style.cssText = `left:${c.px}px;top:${c.py}px;width:0;height:0`;
   document.getElementById('zoneOv').appendChild(drawEl);
+
+  // Attach to window so drag continues outside the image
+  function _move(ev) { onMM(ev); }
+  function _up(ev)   { onMU(ev); window.removeEventListener('mousemove', _move); window.removeEventListener('mouseup', _up); }
+  window.addEventListener('mousemove', _move);
+  window.addEventListener('mouseup',   _up);
 }
 
 function onMM(e) {
   if (!isDragging || !drawEl) return;
   const c = imgCoords(e);
-  const x = Math.min(c.px, dragStart.px), y = Math.min(c.py, dragStart.py);
+  // Clamp to image bounds in pixel space
+  const img = document.getElementById('dimg');
+  const px = Math.max(0, Math.min(c.px, img.offsetWidth));
+  const py = Math.max(0, Math.min(c.py, img.offsetHeight));
+  const x = Math.min(px, dragStart.px), y = Math.min(py, dragStart.py);
   drawEl.style.left   = x+'px';   drawEl.style.top    = y+'px';
-  drawEl.style.width  = Math.abs(c.px - dragStart.px)+'px';
-  drawEl.style.height = Math.abs(c.py - dragStart.py)+'px';
+  drawEl.style.width  = Math.abs(px - dragStart.px)+'px';
+  drawEl.style.height = Math.abs(py - dragStart.py)+'px';
 }
 
 function onMU(e) {
@@ -749,8 +757,12 @@ function onMU(e) {
   isDragging = false;
   if (drawEl) { drawEl.remove(); drawEl = null; }
   const c  = imgCoords(e);
-  const nx = Math.min(c.nx, dragStart.nx), ny = Math.min(c.ny, dragStart.ny);
-  const nw = Math.abs(c.nx - dragStart.nx), nh = Math.abs(c.ny - dragStart.ny);
+  const img = document.getElementById('dimg');
+  // Clamp final coords to image bounds
+  const cnx = Math.max(0, Math.min(c.nx, designW));
+  const cny = Math.max(0, Math.min(c.ny, designH));
+  const nx = Math.min(cnx, dragStart.nx), ny = Math.min(cny, dragStart.ny);
+  const nw = Math.abs(cnx - dragStart.nx), nh = Math.abs(cny - dragStart.ny);
   if (nw < 8 || nh < 8) return;
   if (activeZone !== 'extra') zones = zones.filter(z => z.key !== activeZone);
   zones.push({ key:activeZone, x:nx, y:ny, w:nw, h:nh });
