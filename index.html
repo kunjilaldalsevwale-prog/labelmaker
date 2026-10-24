@@ -402,6 +402,9 @@ select:focus{border-color:var(--accent)}
       <input type="color" id="ztColor" oninput="ztApplyColor()" style="width:36px;height:28px;background:#111;border:1px solid #444;border-radius:5px;padding:2px;cursor:pointer"/>
       <label style="font-size:.72rem;color:#888">BG Color</label>
       <input type="color" id="ztBg" oninput="ztApplyBg()" style="width:36px;height:28px;background:#111;border:1px solid #444;border-radius:5px;padding:2px;cursor:pointer"/>
+      <label style="font-size:.72rem;color:#888;display:flex;align-items:center;gap:4px;cursor:pointer">
+        <input type="checkbox" id="ztWrap" onchange="ztApplyWrap()" style="cursor:pointer"/> Force Wrap
+      </label>
       <button onclick="ztReset()" style="background:#333;border:none;color:#ccc;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:.72rem">↺ Reset</button>
     </div>
     <!-- Canvas area -->
@@ -1338,27 +1341,26 @@ async function renderLabel(canvas, row, maxFs, color) {
     const hasOverride = !!zone.fontSize;
 
     if (!hasOverride) {
-      // Auto mode: try text at full font size first
-      // If it fits on one line → one line. If not → wrap to multiple lines.
-      // Shrink font only if wrapped lines still overflow the zone height.
+      // Auto mode: try text at full font size first.
+      // zone.wrap = true means force wrap even if it fits on one line.
+      // Otherwise wrap only when text overflows width.
       let guard = 0;
       while (fs > 8 && guard++ < 200) {
         ctx.font = `${fw} ${fs}px ${ff}`;
-        if (ctx.measureText(text).width <= maxW) {
-          // Fits on one line — done
+        const fitsOneLine = ctx.measureText(text).width <= maxW;
+        if (fitsOneLine && !zone.wrap) {
           lines = [text];
           break;
         }
-        // Doesn't fit — wrap and check if height is ok
         lines = wrapText(ctx, text, maxW);
         const totalH = lines.length * fs * 1.25;
         if (totalH <= zone.h - 4) break;
         fs -= 2;
       }
     } else {
-      // Explicit font size set — always wrap if needed, never shrink
+      // Explicit font size set — wrap if forced or overflowing, never shrink
       ctx.font = `${fw} ${fs}px ${ff}`;
-      if (ctx.measureText(text).width <= maxW) {
+      if (!zone.wrap && ctx.measureText(text).width <= maxW) {
         lines = [text];
       } else {
         lines = wrapText(ctx, text, maxW);
@@ -1396,7 +1398,7 @@ async function previewLabels() {
   await loadDevaFont();
 
   // Init per-label overrides (zoneRects stores per-label x/y/w/h overrides)
-  labelOverrides = excelData.map(() => ({ fontSizes:{}, colors:{}, bgColors:{}, texts:{}, zoneRects:{} }));
+  labelOverrides = excelData.map(() => ({ fontSizes:{}, colors:{}, bgColors:{}, texts:{}, zoneRects:{}, wraps:{} }));
 
   setProg(50); setStatus('Opening editor…'); await sleep(30);
   editorIdx = 0;
@@ -1653,10 +1655,10 @@ function loadZoneToolbar(zi) {
   document.getElementById('ztAlign').value = zone.align || 'center';
   document.getElementById('ztColor').value = ovr.colors[zi]   || zone.color   || editorColor;
   document.getElementById('ztBg').value    = ovr.bgColors[zi] || zone.bgColor || '#fde7c0';
-  document.getElementById('ztWrap').checked = zone.wrap || false;
+  document.getElementById('ztWrap').checked = ovr.wraps && ovr.wraps[zi] ? true : false;
 }
 
-async function ztApplyWrap()  { const zi=editorSelectedZone; if(zi<0)return; zones[zi].wrap=document.getElementById('ztWrap').checked; await editorRender(); }
+async function ztApplyWrap()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].wraps[zi]=document.getElementById('ztWrap').checked; await editorRender(); }
 async function ztApplyText()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].texts[zi]=document.getElementById('ztText').value; await editorRender(); }
 async function ztApplySize()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].fontSizes[zi]=parseInt(document.getElementById('ztSize').value)||null; await editorRender(); }
 async function ztApplyAlign() { const zi=editorSelectedZone; if(zi<0)return; zones[zi].align=document.getElementById('ztAlign').value; await editorRender(); }
@@ -1666,6 +1668,7 @@ async function ztReset() {
   const zi=editorSelectedZone; if(zi<0)return;
   const ovr=labelOverrides[editorIdx];
   delete ovr.texts[zi]; delete ovr.fontSizes[zi]; delete ovr.colors[zi]; delete ovr.bgColors[zi];
+  if (ovr.wraps) delete ovr.wraps[zi];
   loadZoneToolbar(zi); await editorRender();
 }
 
@@ -1675,7 +1678,7 @@ async function editorNext() { if(editorIdx<excelData.length-1){ editorIdx++; edi
 // renderLabel extended with per-label overrides
 async function renderLabelWithOverrides(canvas, row, maxFs, color, ovr) {
   // Temporarily apply per-label overrides to zones, render, then restore
-  const saved = zones.map(z => ({ fontSize: z.fontSize, color: z.color, bgColor: z.bgColor, x: z.x, y: z.y, w: z.w, h: z.h }));
+  const saved = zones.map(z => ({ fontSize: z.fontSize, color: z.color, bgColor: z.bgColor, x: z.x, y: z.y, w: z.w, h: z.h, wrap: z.wrap }));
 
   zones.forEach((z, zi) => {
     if (ovr.fontSizes[zi] != null) z.fontSize = ovr.fontSizes[zi];
@@ -1686,6 +1689,8 @@ async function renderLabelWithOverrides(canvas, row, maxFs, color, ovr) {
       const r = ovr.zoneRects[zi];
       z.x = r.x; z.y = r.y; z.w = r.w; z.h = r.h;
     }
+    // Apply per-label wrap override if set
+    if (ovr.wraps && ovr.wraps[zi] != null) z.wrap = ovr.wraps[zi];
   });
 
   // Temporarily override text via a wrapped row
@@ -1711,6 +1716,7 @@ async function renderLabelWithOverrides(canvas, row, maxFs, color, ovr) {
     z.color    = saved[zi].color;
     z.bgColor  = saved[zi].bgColor;
     z.x = saved[zi].x; z.y = saved[zi].y; z.w = saved[zi].w; z.h = saved[zi].h;
+    z.wrap = saved[zi].wrap;
   });
 }
 
