@@ -1328,26 +1328,40 @@ async function renderLabel(canvas, row, maxFs, color) {
 
     // Use zone override if set, else auto-fit from maxFs
     const zoneMax = zone.fontSize || maxFs;
-    const maxW = zone.w - 16;
+    const maxW = Math.max(zone.w - 16, 10);
     let fs = zoneMax;
     let lines = [text];
-    if (zone.wrap) {
-      // Wrap mode: split into lines, shrink only if total height overflows
-      while (fs > 8) {
-        ctx.font = `${fw} ${fs}px ${ff}`;
-        lines = wrapText(ctx, text, maxW);
-        const totalH = lines.length * fs * 1.25;
-        if (totalH <= zone.h - 4) break;
-        fs -= 2;
+    // Only auto-shrink when no explicit font size override is set
+    const hasOverride = !!zone.fontSize;
+    if (!hasOverride) {
+      if (zone.wrap) {
+        // Wrap mode: split into lines, shrink only if total height overflows
+        let guard = 0;
+        while (fs > 8 && guard++ < 200) {
+          ctx.font = `${fw} ${fs}px ${ff}`;
+          lines = wrapText(ctx, text, maxW);
+          const totalH = lines.length * fs * 1.25;
+          if (totalH <= zone.h - 4) break;
+          fs -= 2;
+        }
+      } else {
+        // Single-line mode: shrink font until text fits width
+        let guard = 0;
+        while (fs > 8 && guard++ < 200) {
+          ctx.font = `${fw} ${fs}px ${ff}`;
+          if (ctx.measureText(text).width <= maxW) break;
+          fs -= 2;
+        }
+        lines = [text];
       }
     } else {
-      // Single-line mode: shrink font until text fits width
-      while (fs > 8) {
-        ctx.font = `${fw} ${fs}px ${ff}`;
-        if (ctx.measureText(text).width <= maxW) break;
-        fs -= 2;
+      // Override set — use exact size, just do wrap if needed
+      ctx.font = `${fw} ${fs}px ${ff}`;
+      if (zone.wrap) {
+        lines = wrapText(ctx, text, maxW);
+      } else {
+        lines = [text];
       }
-      lines = [text];
     }
 
     ctx.font         = `${fw} ${fs}px ${ff}`;
@@ -1438,6 +1452,15 @@ let editorIdx = 0;
 let editorSelectedZone = -1;
 let editorMaxFs = 60;
 let editorColor = '#652e00';
+let _editorRenderPending = false;
+
+// Debounced render — skips queued calls while one is in progress
+async function editorRender() {
+  if (_editorRenderPending) return;
+  _editorRenderPending = true;
+  await _editorRenderCore();
+  _editorRenderPending = false;
+}
 
 async function openEditor() {
   editorMaxFs = parseInt(document.getElementById('fontSize').value) || 60;
@@ -1452,7 +1475,7 @@ function closeEditor() {
   editorSelectedZone = -1;
 }
 
-async function editorRender() {
+async function _editorRenderCore() {
   const n = excelData.length;
   document.getElementById('editorCounter').textContent = `${editorIdx+1} / ${n}`;
   document.getElementById('editorPrevBtn').disabled = editorIdx === 0;
