@@ -402,6 +402,9 @@ select:focus{border-color:var(--accent)}
       <input type="color" id="ztColor" oninput="ztApplyColor()" style="width:36px;height:28px;background:#111;border:1px solid #444;border-radius:5px;padding:2px;cursor:pointer"/>
       <label style="font-size:.72rem;color:#888">BG Color</label>
       <input type="color" id="ztBg" oninput="ztApplyBg()" style="width:36px;height:28px;background:#111;border:1px solid #444;border-radius:5px;padding:2px;cursor:pointer"/>
+      <label style="font-size:.72rem;color:#888;display:flex;align-items:center;gap:4px;cursor:pointer">
+        <input type="checkbox" id="ztWrap" onchange="ztApplyWrap()" style="cursor:pointer"/> Wrap
+      </label>
       <button onclick="ztReset()" style="background:#333;border:none;color:#ccc;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:.72rem">↺ Reset</button>
     </div>
     <!-- Canvas area -->
@@ -1214,12 +1217,38 @@ async function renderLabel(canvas, row, maxFs, color) {
     }
     const fw = (key==='name' || key==='price') ? '800' : '700';
 
+    // Word-wrap helper: split text into lines that fit within maxW
+    function wrapText(ctx, text, maxW) {
+      const words = text.split(' ');
+      const lines = [];
+      let cur = '';
+      for (const word of words) {
+        const test = cur ? cur + ' ' + word : word;
+        if (ctx.measureText(test).width > maxW && cur) {
+          lines.push(cur);
+          cur = word;
+        } else {
+          cur = test;
+        }
+      }
+      if (cur) lines.push(cur);
+      return lines;
+    }
+
     // Use zone override if set, else auto-fit from maxFs
     const zoneMax = zone.fontSize || maxFs;
+    const maxW = zone.w - 16;
     let fs = zoneMax;
+    let lines = [text];
+    // First try fitting on one line; if not, wrap and try smaller sizes
     while (fs > 8) {
       ctx.font = `${fw} ${fs}px ${ff}`;
-      if (ctx.measureText(text).width <= zone.w - 10) break;
+      lines = wrapText(ctx, text, maxW);
+      const lineH = fs * 1.25;
+      const totalH = lines.length * lineH;
+      // fits if all lines ≤ maxW AND total height ≤ zone height
+      const allFit = lines.every(l => ctx.measureText(l).width <= maxW);
+      if (allFit && totalH <= zone.h - 4) break;
       fs -= 2;
     }
 
@@ -1230,7 +1259,12 @@ async function renderLabel(canvas, row, maxFs, color) {
     const tx = zone.align === 'left'  ? zone.x + 8 :
                zone.align === 'right' ? zone.x + zone.w - 8 :
                zone.x + zone.w / 2;
-    ctx.fillText(text, tx, zone.y + zone.h/2, zone.w - 16);
+    const lineH = fs * 1.25;
+    const totalH = lines.length * lineH;
+    const startY = zone.y + (zone.h - totalH) / 2 + lineH / 2;
+    lines.forEach((line, li) => {
+      ctx.fillText(line, tx, startY + li * lineH, maxW);
+    });
   }
 }
 
@@ -1483,8 +1517,10 @@ function loadZoneToolbar(zi) {
   document.getElementById('ztAlign').value = zone.align || 'center';
   document.getElementById('ztColor').value = ovr.colors[zi]   || zone.color   || editorColor;
   document.getElementById('ztBg').value    = ovr.bgColors[zi] || zone.bgColor || '#fde7c0';
+  document.getElementById('ztWrap').checked = zone.wrap || false;
 }
 
+async function ztApplyWrap()  { const zi=editorSelectedZone; if(zi<0)return; zones[zi].wrap=document.getElementById('ztWrap').checked; await editorRender(); }
 async function ztApplyText()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].texts[zi]=document.getElementById('ztText').value; await editorRender(); }
 async function ztApplySize()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].fontSizes[zi]=parseInt(document.getElementById('ztSize').value)||null; await editorRender(); }
 async function ztApplyAlign() { const zi=editorSelectedZone; if(zi<0)return; zones[zi].align=document.getElementById('ztAlign').value; await editorRender(); }
