@@ -946,6 +946,13 @@ function buildOverridePanel() {
               <option value="right"  ${alVal==='right' ?'selected':''}>Right</option>
             </select>
           </div>
+          <div class="override-field" style="justify-content:center;align-items:center;display:flex;flex-direction:column;gap:4px">
+            <label>Wrap Text</label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:.8rem">
+              <input type="checkbox" id="ov-wrap-${i}" ${zone.wrap?'checked':''} onchange="setZoneOverride(${i},'wrap',this.checked)" style="width:15px;height:15px;cursor:pointer"/>
+              On
+            </label>
+          </div>
         </div>
         <button class="override-reset" onclick="resetZoneOverride(${i})">↺ Reset to auto</button>
       </div>`;
@@ -964,6 +971,8 @@ function setZoneOverride(i, prop, val) {
   if (!zones[i]) return;
   if (prop === 'fontSize') {
     zones[i].fontSize = val ? parseInt(val) : null;
+  } else if (prop === 'wrap') {
+    zones[i].wrap = !!val;
   } else {
     zones[i][prop] = val || null;
   }
@@ -985,6 +994,11 @@ function resetZoneOverride(i) {
   zones[i].bgColor = null;
   const bgEl = document.getElementById('ov-bg-'+i);
   if (bgEl) bgEl.value = document.getElementById('bgColor').value;
+  zones[i].wrap = false;
+  const wrapEl = document.getElementById('ov-wrap-'+i);
+  if (wrapEl) wrapEl.checked = false;
+  renderZones();
+  saveState();
 }
 
 // ═══════════════════════ HINDI TRANSLITERATION ═══════════════════════
