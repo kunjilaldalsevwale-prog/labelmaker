@@ -375,6 +375,44 @@ select:focus{border-color:var(--accent)}
   <div class="preview-row" id="previewRow"></div>
   <div id="labelEditArea" style="display:none;padding:16px"></div>
 
+  <!-- Canva-style label editor overlay -->
+  <div id="labelEditor" style="display:none;position:absolute;inset:0;background:#1a1a1f;z-index:50;display:none;flex-direction:column">
+    <!-- Top bar -->
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:#111;border-bottom:1px solid #333;flex-shrink:0">
+      <button onclick="closeEditor()" style="background:#333;border:none;color:#ccc;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.8rem">✕ Back</button>
+      <span id="editorLabelName" style="font-size:.85rem;font-weight:600;color:#eee;flex:1"></span>
+      <button onclick="editorPrev()" id="editorPrevBtn" style="background:#333;border:none;color:#ccc;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.8rem">◀ Prev</button>
+      <span id="editorCounter" style="font-size:.8rem;color:#888;min-width:70px;text-align:center"></span>
+      <button onclick="editorNext()" id="editorNextBtn" style="background:#333;border:none;color:#ccc;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.8rem">Next ▶</button>
+      <button onclick="downloadPDF()" style="background:#6c47ff;border:none;color:#fff;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:.8rem;font-weight:600">⬇ Download PDF</button>
+    </div>
+    <!-- Zone toolbar (shown when zone selected) -->
+    <div id="zoneToolbar" style="display:none;align-items:center;gap:8px;padding:6px 14px;background:#1e1e28;border-bottom:1px solid #333;flex-wrap:wrap;flex-shrink:0">
+      <span id="ztZoneName" style="font-size:.75rem;color:#aaa;font-weight:600;min-width:80px"></span>
+      <input type="text" id="ztText" oninput="ztApplyText()" style="flex:1;min-width:140px;padding:4px 8px;background:#111;border:1px solid #444;border-radius:5px;color:#eee;font-size:.8rem" placeholder="Edit text…"/>
+      <label style="font-size:.72rem;color:#888">Size</label>
+      <input type="number" id="ztSize" min="6" max="200" oninput="ztApplySize()" style="width:60px;padding:4px 6px;background:#111;border:1px solid #444;border-radius:5px;color:#eee;font-size:.8rem"/>
+      <label style="font-size:.72rem;color:#888">Align</label>
+      <select id="ztAlign" onchange="ztApplyAlign()" style="padding:4px 7px;background:#111;border:1px solid #444;border-radius:5px;color:#eee;font-size:.8rem">
+        <option value="left">Left</option>
+        <option value="center">Center</option>
+        <option value="right">Right</option>
+      </select>
+      <label style="font-size:.72rem;color:#888">Text Color</label>
+      <input type="color" id="ztColor" oninput="ztApplyColor()" style="width:36px;height:28px;background:#111;border:1px solid #444;border-radius:5px;padding:2px;cursor:pointer"/>
+      <label style="font-size:.72rem;color:#888">BG Color</label>
+      <input type="color" id="ztBg" oninput="ztApplyBg()" style="width:36px;height:28px;background:#111;border:1px solid #444;border-radius:5px;padding:2px;cursor:pointer"/>
+      <button onclick="ztReset()" style="background:#333;border:none;color:#ccc;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:.72rem">↺ Reset</button>
+    </div>
+    <!-- Canvas area -->
+    <div style="flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px">
+      <div style="position:relative;display:inline-block;line-height:0" id="editorCanvasWrap">
+        <canvas id="editorCanvas" style="display:block;max-width:100%;max-height:calc(100vh - 200px);border-radius:8px;box-shadow:0 12px 40px rgba(0,0,0,.7)"></canvas>
+        <div id="editorZoneOv" style="position:absolute;inset:0;pointer-events:none"></div>
+      </div>
+    </div>
+  </div>
+
 </section>
 </div><!-- /main -->
 
@@ -1206,151 +1244,19 @@ async function previewLabels() {
   const btn = document.getElementById('genBtn');
   btn.disabled = true;
   document.getElementById('progBar').classList.add('show');
-  document.getElementById('resultBar').classList.remove('show');
-  document.getElementById('previewRow').classList.remove('show');
-  document.getElementById('previewRow').innerHTML = '';
-  document.getElementById('labelEditArea').style.display = 'none';
-  document.getElementById('labelEditArea').innerHTML = '';
 
-  const maxFs = parseInt(document.getElementById('fontSize').value) || 60;
-  const color = document.getElementById('textColor').value;
-
-  setStatus('Loading fonts…'); setProg(3);
+  setStatus('Loading fonts…'); setProg(10);
   await loadDevaFont();
 
   // Init per-label overrides
   labelOverrides = excelData.map(() => ({ fontSizes:{}, colors:{}, bgColors:{}, texts:{} }));
 
-  const canvas = document.createElement('canvas');
-  canvas.width  = designW;
-  canvas.height = designH;
+  setProg(50); setStatus('Opening editor…'); await sleep(30);
+  editorIdx = 0;
+  editorSelectedZone = -1;
+  await openEditor();
 
-  setStatus('Rendering previews…'); setProg(8);
-
-  const editArea = document.getElementById('labelEditArea');
-
-  for (let i = 0; i < excelData.length; i++) {
-    setStatus(`Rendering label ${i+1} of ${excelData.length}…`);
-    setProg(8 + Math.round(i / excelData.length * 82));
-
-    await renderLabelWithOverrides(canvas, excelData[i], maxFs, color, labelOverrides[i]);
-    const imgData = canvas.toDataURL('image/jpeg', 0.93);
-
-    // Build edit card
-    const card = document.createElement('div');
-    card.className = 'ledit-card';
-    card.id = `ledit-${i}`;
-
-    const labelName = String(excelData[i][colAssign.name] || `Label ${i+1}`);
-
-    // Thumbnail canvas
-    const thumb = document.createElement('canvas');
-    thumb.width = designW; thumb.height = designH;
-    thumb.style.cssText = 'width:120px;height:auto;border-radius:4px;flex-shrink:0;border:1px solid var(--border)';
-    thumb.getContext('2d').drawImage(canvas, 0, 0);
-
-    const head = document.createElement('div');
-    head.className = 'ledit-head';
-    head.onclick = () => {
-      const b = card.querySelector('.ledit-body');
-      const t = card.querySelector('.ledit-toggle');
-      const open = b.classList.toggle('open');
-      t.textContent = open ? '▾' : '▸';
-    };
-
-    const title = document.createElement('div');
-    title.className = 'ledit-title';
-    title.textContent = labelName;
-
-    const tog = document.createElement('div');
-    tog.className = 'ledit-toggle';
-    tog.textContent = '▸';
-
-    head.appendChild(thumb);
-    head.appendChild(title);
-    head.appendChild(tog);
-
-    // Body with zone controls
-    const body = document.createElement('div');
-    body.className = 'ledit-body';
-
-    // Header row
-    const hdr = document.createElement('div');
-    hdr.style.cssText = 'display:grid;grid-template-columns:120px 1fr 80px 80px 80px;gap:8px;font-size:.68rem;color:var(--muted);font-weight:600;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border)';
-    hdr.innerHTML = '<span>Zone</span><span>Text</span><span>Size (px)</span><span>Text Color</span><span>BG Color</span>';
-    body.appendChild(hdr);
-
-    zones.forEach((zone, zi) => {
-      const def = ZDEFS[zone.key];
-      const currentText = getZoneText(zone, excelData[i]);
-      const row = document.createElement('div');
-      row.className = 'ledit-zone-row';
-
-      const zLabel = document.createElement('label');
-      zLabel.style.cssText = `display:flex;align-items:center;gap:5px;color:${def.color};font-weight:600`;
-      zLabel.innerHTML = `<span style="width:8px;height:8px;border-radius:2px;background:${def.color};flex-shrink:0"></span>${def.label}`;
-
-      const textIn = document.createElement('input');
-      textIn.type = 'text';
-      textIn.value = currentText;
-      textIn.placeholder = currentText;
-      textIn.oninput = () => { labelOverrides[i].texts[zi] = textIn.value; };
-
-      const fsIn = document.createElement('input');
-      fsIn.type = 'number';
-      fsIn.min = 6; fsIn.max = 200;
-      fsIn.value = zone.fontSize || maxFs;
-      fsIn.placeholder = 'auto';
-      fsIn.oninput = () => { labelOverrides[i].fontSizes[zi] = parseInt(fsIn.value) || null; };
-
-      const colIn = document.createElement('input');
-      colIn.type = 'color';
-      colIn.value = zone.color || color;
-      colIn.oninput = () => { labelOverrides[i].colors[zi] = colIn.value; };
-
-      const bgIn = document.createElement('input');
-      bgIn.type = 'color';
-      bgIn.value = zone.bgColor || '#fde7c0';
-      bgIn.oninput = () => { labelOverrides[i].bgColors[zi] = bgIn.value; };
-
-      row.appendChild(zLabel);
-      row.appendChild(textIn);
-      row.appendChild(fsIn);
-      row.appendChild(colIn);
-      row.appendChild(bgIn);
-      body.appendChild(row);
-    });
-
-    // Apply button
-    const applyBtn = document.createElement('button');
-    applyBtn.className = 'ledit-apply';
-    applyBtn.textContent = '↻ Re-render this label';
-    applyBtn.onclick = async () => {
-      applyBtn.textContent = 'Rendering…';
-      applyBtn.disabled = true;
-      await renderLabelWithOverrides(canvas, excelData[i], maxFs, color, labelOverrides[i]);
-      thumb.getContext('2d').drawImage(canvas, 0, 0);
-      applyBtn.textContent = '✓ Updated!';
-      setTimeout(() => { applyBtn.textContent = '↻ Re-render this label'; applyBtn.disabled = false; }, 1200);
-    };
-    body.appendChild(applyBtn);
-
-    card.appendChild(head);
-    card.appendChild(body);
-    editArea.appendChild(card);
-
-    if (i % 5 === 0) await sleep(0);
-  }
-
-  setProg(95); setStatus('Preview ready — edit and download below');
-
-  editArea.style.display = 'block';
-  document.getElementById('resultTxt').textContent =
-    `👁 ${excelData.length} label${excelData.length!==1?'s':''} ready — edit below, then Download PDF`;
-  document.getElementById('resultBar').classList.add('show');
-  editArea.scrollIntoView({ behavior:'smooth', block:'nearest' });
-
-  setProg(100);
+  setProg(100); setStatus(`${excelData.length} labels — use ◀ ▶ to navigate`);
   btn.disabled = false;
   doneStep(4); doneStep(5);
 }
@@ -1394,6 +1300,116 @@ async function downloadPDF() {
   dlBtn.textContent = '⬇ Download PDF';
   dlBtn.disabled = false;
 }
+
+// ══════════════ CANVA-STYLE EDITOR ══════════════
+let editorIdx = 0;
+let editorSelectedZone = -1;
+let editorMaxFs = 60;
+let editorColor = '#652e00';
+
+async function openEditor() {
+  editorMaxFs = parseInt(document.getElementById('fontSize').value) || 60;
+  editorColor = document.getElementById('textColor').value;
+  const ed = document.getElementById('labelEditor');
+  ed.style.display = 'flex';
+  await editorRender();
+}
+
+function closeEditor() {
+  document.getElementById('labelEditor').style.display = 'none';
+  editorSelectedZone = -1;
+}
+
+async function editorRender() {
+  const n = excelData.length;
+  document.getElementById('editorCounter').textContent = `${editorIdx+1} / ${n}`;
+  document.getElementById('editorPrevBtn').disabled = editorIdx === 0;
+  document.getElementById('editorNextBtn').disabled = editorIdx === n - 1;
+  document.getElementById('editorLabelName').textContent =
+    String(excelData[editorIdx][colAssign.name] || `Label ${editorIdx+1}`);
+
+  const canvas = document.getElementById('editorCanvas');
+  canvas.width  = designW;
+  canvas.height = designH;
+  const ovr = labelOverrides[editorIdx] || { fontSizes:{}, colors:{}, bgColors:{}, texts:{} };
+  await renderLabelWithOverrides(canvas, excelData[editorIdx], editorMaxFs, editorColor, ovr);
+
+  editorDrawZoneOverlays();
+  if (editorSelectedZone >= 0) loadZoneToolbar(editorSelectedZone);
+}
+
+function editorDrawZoneOverlays() {
+  const canvas = document.getElementById('editorCanvas');
+  const wrap   = document.getElementById('editorCanvasWrap');
+  const ov     = document.getElementById('editorZoneOv');
+  ov.innerHTML = '';
+  ov.style.pointerEvents = 'auto';
+
+  const scaleX = canvas.offsetWidth  / designW;
+  const scaleY = canvas.offsetHeight / designH;
+
+  zones.forEach((zone, zi) => {
+    const def = ZDEFS[zone.key];
+    const el  = document.createElement('div');
+    el.style.cssText = `
+      position:absolute;
+      left:${zone.x * scaleX}px; top:${zone.y * scaleY}px;
+      width:${zone.w * scaleX}px; height:${zone.h * scaleY}px;
+      border:2px solid ${editorSelectedZone===zi ? def.color : def.color+'66'};
+      background:${editorSelectedZone===zi ? def.color+'33' : 'transparent'};
+      cursor:pointer; box-sizing:border-box; border-radius:3px;
+      transition:background .15s,border .15s;
+    `;
+    el.title = def.label;
+    el.onclick = (e) => {
+      e.stopPropagation();
+      editorSelectedZone = zi;
+      editorDrawZoneOverlays();
+      loadZoneToolbar(zi);
+    };
+    ov.appendChild(el);
+  });
+
+  // Click outside deselects
+  ov.onclick = () => {
+    editorSelectedZone = -1;
+    editorDrawZoneOverlays();
+    document.getElementById('zoneToolbar').style.display = 'none';
+  };
+
+  // Re-scale overlays on canvas resize
+  const obs = new ResizeObserver(() => editorDrawZoneOverlays());
+  obs.observe(canvas);
+}
+
+function loadZoneToolbar(zi) {
+  const zone = zones[zi];
+  const ovr  = labelOverrides[editorIdx];
+  const def  = ZDEFS[zone.key];
+  const tb   = document.getElementById('zoneToolbar');
+  tb.style.display = 'flex';
+  document.getElementById('ztZoneName').textContent = def.label;
+  document.getElementById('ztText').value  = ovr.texts[zi]    ?? getZoneText(zone, excelData[editorIdx]);
+  document.getElementById('ztSize').value  = ovr.fontSizes[zi] ?? zone.fontSize ?? editorMaxFs;
+  document.getElementById('ztAlign').value = zone.align || 'center';
+  document.getElementById('ztColor').value = ovr.colors[zi]   || zone.color   || editorColor;
+  document.getElementById('ztBg').value    = ovr.bgColors[zi] || zone.bgColor || '#fde7c0';
+}
+
+async function ztApplyText()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].texts[zi]=document.getElementById('ztText').value; await editorRender(); }
+async function ztApplySize()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].fontSizes[zi]=parseInt(document.getElementById('ztSize').value)||null; await editorRender(); }
+async function ztApplyAlign() { const zi=editorSelectedZone; if(zi<0)return; zones[zi].align=document.getElementById('ztAlign').value; await editorRender(); }
+async function ztApplyColor() { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].colors[zi]=document.getElementById('ztColor').value; await editorRender(); }
+async function ztApplyBg()    { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].bgColors[zi]=document.getElementById('ztBg').value; await editorRender(); }
+async function ztReset() {
+  const zi=editorSelectedZone; if(zi<0)return;
+  const ovr=labelOverrides[editorIdx];
+  delete ovr.texts[zi]; delete ovr.fontSizes[zi]; delete ovr.colors[zi]; delete ovr.bgColors[zi];
+  loadZoneToolbar(zi); await editorRender();
+}
+
+async function editorPrev() { if(editorIdx>0){ editorIdx--; editorSelectedZone=-1; document.getElementById('zoneToolbar').style.display='none'; await editorRender(); } }
+async function editorNext() { if(editorIdx<excelData.length-1){ editorIdx++; editorSelectedZone=-1; document.getElementById('zoneToolbar').style.display='none'; await editorRender(); } }
 
 // renderLabel extended with per-label overrides
 async function renderLabelWithOverrides(canvas, row, maxFs, color, ovr) {
