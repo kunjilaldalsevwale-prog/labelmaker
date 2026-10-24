@@ -1338,48 +1338,137 @@ async function editorRender() {
   if (editorSelectedZone >= 0) loadZoneToolbar(editorSelectedZone);
 }
 
+let _editorResizeObs = null;
 function editorDrawZoneOverlays() {
   const canvas = document.getElementById('editorCanvas');
-  const wrap   = document.getElementById('editorCanvasWrap');
   const ov     = document.getElementById('editorZoneOv');
   ov.innerHTML = '';
   ov.style.pointerEvents = 'auto';
 
-  const scaleX = canvas.offsetWidth  / designW;
-  const scaleY = canvas.offsetHeight / designH;
+  const scaleX = () => canvas.offsetWidth  / designW;
+  const scaleY = () => canvas.offsetHeight / designH;
 
   zones.forEach((zone, zi) => {
     const def = ZDEFS[zone.key];
-    const el  = document.createElement('div');
+    const selected = editorSelectedZone === zi;
+
+    const el = document.createElement('div');
     el.style.cssText = `
       position:absolute;
-      left:${zone.x * scaleX}px; top:${zone.y * scaleY}px;
-      width:${zone.w * scaleX}px; height:${zone.h * scaleY}px;
-      border:2px solid ${editorSelectedZone===zi ? def.color : def.color+'66'};
-      background:${editorSelectedZone===zi ? def.color+'33' : 'transparent'};
-      cursor:pointer; box-sizing:border-box; border-radius:3px;
-      transition:background .15s,border .15s;
+      left:${zone.x * scaleX()}px; top:${zone.y * scaleY()}px;
+      width:${zone.w * scaleX()}px; height:${zone.h * scaleY()}px;
+      border:2px solid ${selected ? def.color : def.color+'88'};
+      background:${selected ? def.color+'22' : 'transparent'};
+      box-sizing:border-box; border-radius:3px; cursor:move;
     `;
-    el.title = def.label;
-    el.onclick = (e) => {
+
+    // ── MOVE (drag the zone body) ──
+    el.addEventListener('mousedown', e => {
+      if (e.target !== el) return; // don't intercept handle clicks
+      e.preventDefault(); e.stopPropagation();
+      editorSelectedZone = zi;
+      editorDrawZoneOverlays();
+      loadZoneToolbar(zi);
+      const startX = e.clientX, startY = e.clientY;
+      const origX = zone.x, origY = zone.y;
+      const sx = scaleX(), sy = scaleY();
+      function onMove(ev) {
+        zone.x = Math.max(0, origX + (ev.clientX - startX) / sx);
+        zone.y = Math.max(0, origY + (ev.clientY - startY) / sy);
+        editorDrawZoneOverlays();
+        editorRender();
+      }
+      function onUp() {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      }
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+
+    // Click to select (no drag)
+    el.addEventListener('click', e => {
       e.stopPropagation();
       editorSelectedZone = zi;
       editorDrawZoneOverlays();
       loadZoneToolbar(zi);
-    };
+    });
+
+    // ── RESIZE HANDLES (8 directions) ──
+    if (selected) {
+      const handles = [
+        { cur:'nw-resize', top:'-5px', left:'-5px',   onDrag:(dx,dy,oz)=>{ zone.x=oz.x+dx/scaleX(); zone.y=oz.y+dy/scaleY(); zone.w=oz.w-dx/scaleX(); zone.h=oz.h-dy/scaleY(); } },
+        { cur:'n-resize',  top:'-5px', left:'50%',     onDrag:(dx,dy,oz)=>{ zone.y=oz.y+dy/scaleY(); zone.h=oz.h-dy/scaleY(); } },
+        { cur:'ne-resize', top:'-5px', right:'-5px',   onDrag:(dx,dy,oz)=>{ zone.y=oz.y+dy/scaleY(); zone.w=oz.w+dx/scaleX(); zone.h=oz.h-dy/scaleY(); } },
+        { cur:'e-resize',  top:'50%',  right:'-5px',   onDrag:(dx,dy,oz)=>{ zone.w=oz.w+dx/scaleX(); } },
+        { cur:'se-resize', bottom:'-5px', right:'-5px',onDrag:(dx,dy,oz)=>{ zone.w=oz.w+dx/scaleX(); zone.h=oz.h+dy/scaleY(); } },
+        { cur:'s-resize',  bottom:'-5px', left:'50%',  onDrag:(dx,dy,oz)=>{ zone.h=oz.h+dy/scaleY(); } },
+        { cur:'sw-resize', bottom:'-5px', left:'-5px', onDrag:(dx,dy,oz)=>{ zone.x=oz.x+dx/scaleX(); zone.w=oz.w-dx/scaleX(); zone.h=oz.h+dy/scaleY(); } },
+        { cur:'w-resize',  top:'50%',  left:'-5px',    onDrag:(dx,dy,oz)=>{ zone.x=oz.x+dx/scaleX(); zone.w=oz.w-dx/scaleX(); } },
+      ];
+      handles.forEach(h => {
+        const hEl = document.createElement('div');
+        const pos = [h.top&&`top:${h.top}`, h.bottom&&`bottom:${h.bottom}`, h.left&&`left:${h.left}`, h.right&&`right:${h.right}`].filter(Boolean).join(';');
+        hEl.style.cssText = `position:absolute;${pos};width:10px;height:10px;transform:translate(-50%,-50%);
+          background:${def.color};border:2px solid #fff;border-radius:2px;cursor:${h.cur};z-index:10;`;
+        hEl.addEventListener('mousedown', e => {
+          e.preventDefault(); e.stopPropagation();
+          const startX = e.clientX, startY = e.clientY;
+          const oz = { x:zone.x, y:zone.y, w:zone.w, h:zone.h };
+          function onMove(ev) {
+            h.onDrag(ev.clientX - startX, ev.clientY - startY, oz);
+            zone.w = Math.max(20, zone.w);
+            zone.h = Math.max(10, zone.h);
+            editorDrawZoneOverlays();
+            editorRender();
+          }
+          function onUp() {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+          }
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        });
+        el.appendChild(hEl);
+      });
+
+      // Font size +/- pill above the zone
+      const pill = document.createElement('div');
+      pill.style.cssText = `position:absolute;top:-28px;left:50%;transform:translateX(-50%);
+        background:#111c;border:1px solid ${def.color};border-radius:20px;display:flex;align-items:center;
+        gap:4px;padding:2px 8px;white-space:nowrap;pointer-events:auto;z-index:20`;
+      const fsVal = () => labelOverrides[editorIdx].fontSizes[zi] ?? zone.fontSize ?? editorMaxFs;
+      const fsSpan = document.createElement('span');
+      fsSpan.style.cssText = 'font-size:.7rem;color:#eee;min-width:28px;text-align:center';
+      fsSpan.textContent = fsVal() + 'px';
+      const btnM = document.createElement('button');
+      btnM.textContent = '−';
+      btnM.style.cssText = 'background:none;border:none;color:#eee;font-size:1rem;cursor:pointer;padding:0 2px;line-height:1';
+      btnM.onclick = async e => { e.stopPropagation(); const v=Math.max(6,fsVal()-2); labelOverrides[editorIdx].fontSizes[zi]=v; fsSpan.textContent=v+'px'; document.getElementById('ztSize').value=v; await editorRender(); };
+      const btnP = document.createElement('button');
+      btnP.textContent = '+';
+      btnP.style.cssText = 'background:none;border:none;color:#eee;font-size:1rem;cursor:pointer;padding:0 2px;line-height:1';
+      btnP.onclick = async e => { e.stopPropagation(); const v=Math.min(200,fsVal()+2); labelOverrides[editorIdx].fontSizes[zi]=v; fsSpan.textContent=v+'px'; document.getElementById('ztSize').value=v; await editorRender(); };
+      pill.appendChild(btnM); pill.appendChild(fsSpan); pill.appendChild(btnP);
+      el.appendChild(pill);
+    }
+
     ov.appendChild(el);
   });
 
-  // Click outside deselects
-  ov.onclick = () => {
-    editorSelectedZone = -1;
-    editorDrawZoneOverlays();
-    document.getElementById('zoneToolbar').style.display = 'none';
-  };
+  // Click outside → deselect
+  ov.addEventListener('click', e => {
+    if (e.target === ov) {
+      editorSelectedZone = -1;
+      editorDrawZoneOverlays();
+      document.getElementById('zoneToolbar').style.display = 'none';
+    }
+  });
 
-  // Re-scale overlays on canvas resize
-  const obs = new ResizeObserver(() => editorDrawZoneOverlays());
-  obs.observe(canvas);
+  // Keep overlays in sync on canvas resize
+  if (_editorResizeObs) _editorResizeObs.disconnect();
+  _editorResizeObs = new ResizeObserver(() => editorDrawZoneOverlays());
+  _editorResizeObs.observe(canvas);
 }
 
 function loadZoneToolbar(zi) {
