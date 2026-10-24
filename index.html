@@ -174,6 +174,22 @@ select:focus{border-color:var(--accent)}
 .preview-thumb{flex-shrink:0;width:160px;border-radius:6px;overflow:hidden;border:1px solid var(--border)}
 .preview-thumb img{width:100%;display:block}
 .preview-lbl{font-size:.65rem;color:var(--muted);padding:3px 7px;background:var(--surf2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Label edit cards */
+.ledit-card{background:var(--surf2);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;overflow:hidden}
+.ledit-head{display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;background:var(--surf)}
+.ledit-head:hover{background:var(--surf2)}
+.ledit-head canvas{width:120px;height:auto;border-radius:4px;flex-shrink:0;border:1px solid var(--border)}
+.ledit-title{font-size:.8rem;font-weight:600;flex:1}
+.ledit-toggle{font-size:.75rem;color:var(--muted)}
+.ledit-body{display:none;padding:12px;border-top:1px solid var(--border)}
+.ledit-body.open{display:block}
+.ledit-zone-row{display:grid;grid-template-columns:120px 1fr 80px 80px 80px;align-items:center;gap:8px;margin-bottom:8px;font-size:.75rem}
+.ledit-zone-row label{color:var(--muted);font-weight:500}
+.ledit-zone-row input[type=number]{width:100%;padding:4px 6px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:.75rem}
+.ledit-zone-row input[type=color]{width:100%;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:2px;cursor:pointer}
+.ledit-zone-row input[type=text]{width:100%;padding:4px 6px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:.75rem}
+.ledit-apply{font-size:.72rem;padding:5px 12px;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:4px}
+.ledit-apply:hover{opacity:.85}
 
 /* Disabled overlay for steps */
 .step-disabled{opacity:.35;pointer-events:none}
@@ -324,8 +340,8 @@ select:focus{border-color:var(--accent)}
 
 <!-- Generate -->
 <div class="gen-wrap">
-  <button class="gen-btn" id="genBtn" onclick="generate()" disabled>
-    ⚡ Generate Labels PDF
+  <button class="gen-btn" id="genBtn" onclick="previewLabels()" disabled>
+    👁 Preview Labels
   </button>
   <div class="progress-bar" id="progBar">
     <div class="progress-fill" id="progFill"></div>
@@ -352,11 +368,12 @@ select:focus{border-color:var(--accent)}
   </div>
 
   <div class="result-bar" id="resultBar">
-    <div class="result-txt" id="resultTxt">Labels generated!</div>
-    <a id="dlLink" class="dl-btn">⬇ Download PDF</a>
+    <div class="result-txt" id="resultTxt">Labels ready!</div>
+    <button class="dl-btn" id="dlBtn" onclick="downloadPDF()">⬇ Download PDF</button>
   </div>
 
   <div class="preview-row" id="previewRow"></div>
+  <div id="labelEditArea" style="display:none;padding:16px"></div>
 
 </section>
 </div><!-- /main -->
@@ -1180,7 +1197,10 @@ async function renderLabel(canvas, row, maxFs, color) {
 }
 
 // ═══════════════════════ GENERATE PDF ═══════════════════════
-async function generate() {
+// Per-label overrides: array of {fontSizes:{zoneIdx:px}, colors:{zoneIdx:'#hex'}, bgColors:{zoneIdx:'#hex'}, texts:{zoneIdx:'str'}}
+let labelOverrides = [];
+
+async function previewLabels() {
   if (!designImg || !excelData.length || !zones.length) return;
 
   const btn = document.getElementById('genBtn');
@@ -1189,12 +1209,161 @@ async function generate() {
   document.getElementById('resultBar').classList.remove('show');
   document.getElementById('previewRow').classList.remove('show');
   document.getElementById('previewRow').innerHTML = '';
+  document.getElementById('labelEditArea').style.display = 'none';
+  document.getElementById('labelEditArea').innerHTML = '';
 
   const maxFs = parseInt(document.getElementById('fontSize').value) || 60;
   const color = document.getElementById('textColor').value;
 
   setStatus('Loading fonts…'); setProg(3);
   await loadDevaFont();
+
+  // Init per-label overrides
+  labelOverrides = excelData.map(() => ({ fontSizes:{}, colors:{}, bgColors:{}, texts:{} }));
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = designW;
+  canvas.height = designH;
+
+  setStatus('Rendering previews…'); setProg(8);
+
+  const editArea = document.getElementById('labelEditArea');
+
+  for (let i = 0; i < excelData.length; i++) {
+    setStatus(`Rendering label ${i+1} of ${excelData.length}…`);
+    setProg(8 + Math.round(i / excelData.length * 82));
+
+    await renderLabelWithOverrides(canvas, excelData[i], maxFs, color, labelOverrides[i]);
+    const imgData = canvas.toDataURL('image/jpeg', 0.93);
+
+    // Build edit card
+    const card = document.createElement('div');
+    card.className = 'ledit-card';
+    card.id = `ledit-${i}`;
+
+    const labelName = String(excelData[i][colAssign.name] || `Label ${i+1}`);
+
+    // Thumbnail canvas
+    const thumb = document.createElement('canvas');
+    thumb.width = designW; thumb.height = designH;
+    thumb.style.cssText = 'width:120px;height:auto;border-radius:4px;flex-shrink:0;border:1px solid var(--border)';
+    thumb.getContext('2d').drawImage(canvas, 0, 0);
+
+    const head = document.createElement('div');
+    head.className = 'ledit-head';
+    head.onclick = () => {
+      const b = card.querySelector('.ledit-body');
+      const t = card.querySelector('.ledit-toggle');
+      const open = b.classList.toggle('open');
+      t.textContent = open ? '▾' : '▸';
+    };
+
+    const title = document.createElement('div');
+    title.className = 'ledit-title';
+    title.textContent = labelName;
+
+    const tog = document.createElement('div');
+    tog.className = 'ledit-toggle';
+    tog.textContent = '▸';
+
+    head.appendChild(thumb);
+    head.appendChild(title);
+    head.appendChild(tog);
+
+    // Body with zone controls
+    const body = document.createElement('div');
+    body.className = 'ledit-body';
+
+    // Header row
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'display:grid;grid-template-columns:120px 1fr 80px 80px 80px;gap:8px;font-size:.68rem;color:var(--muted);font-weight:600;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border)';
+    hdr.innerHTML = '<span>Zone</span><span>Text</span><span>Size (px)</span><span>Text Color</span><span>BG Color</span>';
+    body.appendChild(hdr);
+
+    zones.forEach((zone, zi) => {
+      const def = ZDEFS[zone.key];
+      const currentText = getZoneText(zone, excelData[i]);
+      const row = document.createElement('div');
+      row.className = 'ledit-zone-row';
+
+      const zLabel = document.createElement('label');
+      zLabel.style.cssText = `display:flex;align-items:center;gap:5px;color:${def.color};font-weight:600`;
+      zLabel.innerHTML = `<span style="width:8px;height:8px;border-radius:2px;background:${def.color};flex-shrink:0"></span>${def.label}`;
+
+      const textIn = document.createElement('input');
+      textIn.type = 'text';
+      textIn.value = currentText;
+      textIn.placeholder = currentText;
+      textIn.oninput = () => { labelOverrides[i].texts[zi] = textIn.value; };
+
+      const fsIn = document.createElement('input');
+      fsIn.type = 'number';
+      fsIn.min = 6; fsIn.max = 200;
+      fsIn.value = zone.fontSize || maxFs;
+      fsIn.placeholder = 'auto';
+      fsIn.oninput = () => { labelOverrides[i].fontSizes[zi] = parseInt(fsIn.value) || null; };
+
+      const colIn = document.createElement('input');
+      colIn.type = 'color';
+      colIn.value = zone.color || color;
+      colIn.oninput = () => { labelOverrides[i].colors[zi] = colIn.value; };
+
+      const bgIn = document.createElement('input');
+      bgIn.type = 'color';
+      bgIn.value = zone.bgColor || '#fde7c0';
+      bgIn.oninput = () => { labelOverrides[i].bgColors[zi] = bgIn.value; };
+
+      row.appendChild(zLabel);
+      row.appendChild(textIn);
+      row.appendChild(fsIn);
+      row.appendChild(colIn);
+      row.appendChild(bgIn);
+      body.appendChild(row);
+    });
+
+    // Apply button
+    const applyBtn = document.createElement('button');
+    applyBtn.className = 'ledit-apply';
+    applyBtn.textContent = '↻ Re-render this label';
+    applyBtn.onclick = async () => {
+      applyBtn.textContent = 'Rendering…';
+      applyBtn.disabled = true;
+      await renderLabelWithOverrides(canvas, excelData[i], maxFs, color, labelOverrides[i]);
+      thumb.getContext('2d').drawImage(canvas, 0, 0);
+      applyBtn.textContent = '✓ Updated!';
+      setTimeout(() => { applyBtn.textContent = '↻ Re-render this label'; applyBtn.disabled = false; }, 1200);
+    };
+    body.appendChild(applyBtn);
+
+    card.appendChild(head);
+    card.appendChild(body);
+    editArea.appendChild(card);
+
+    if (i % 5 === 0) await sleep(0);
+  }
+
+  setProg(95); setStatus('Preview ready — edit and download below');
+
+  editArea.style.display = 'block';
+  document.getElementById('resultTxt').textContent =
+    `👁 ${excelData.length} label${excelData.length!==1?'s':''} ready — edit below, then Download PDF`;
+  document.getElementById('resultBar').classList.add('show');
+  editArea.scrollIntoView({ behavior:'smooth', block:'nearest' });
+
+  setProg(100);
+  btn.disabled = false;
+  doneStep(4); doneStep(5);
+}
+
+async function downloadPDF() {
+  if (!designImg || !excelData.length || !zones.length) return;
+
+  const dlBtn = document.getElementById('dlBtn');
+  dlBtn.disabled = true;
+  dlBtn.textContent = 'Building PDF…';
+
+  const maxFs = parseInt(document.getElementById('fontSize').value) || 60;
+  const color = document.getElementById('textColor').value;
 
   const { jsPDF } = window.jspdf;
   const ratio  = designW / designH;
@@ -1207,50 +1376,59 @@ async function generate() {
   canvas.width  = designW;
   canvas.height = designH;
 
-  setStatus('Rendering labels…'); setProg(8);
-
   for (let i = 0; i < excelData.length; i++) {
-    setStatus(`Rendering label ${i+1} of ${excelData.length}…`);
-    setProg(8 + Math.round(i / excelData.length * 82));
-
-    await renderLabel(canvas, excelData[i], maxFs, color);
+    const ovr = labelOverrides[i] || { fontSizes:{}, colors:{}, bgColors:{}, texts:{} };
+    await renderLabelWithOverrides(canvas, excelData[i], maxFs, color, ovr);
     const imgData = canvas.toDataURL('image/jpeg', 0.93);
-
     if (i > 0) pdf.addPage([pgW_mm, pgH_mm], orient);
     pdf.addImage(imgData, 'JPEG', 0, 0, pgW_mm, pgH_mm);
-
-    // Preview strip (first 8)
-    if (i < 8) {
-      const strip = document.getElementById('previewRow');
-      const thumb = document.createElement('div');
-      thumb.className = 'preview-thumb';
-      const ti = document.createElement('img'); ti.src = imgData;
-      const tl = document.createElement('div'); tl.className = 'preview-lbl';
-      tl.textContent = String(excelData[i][colAssign.name] || `Label ${i+1}`);
-      thumb.appendChild(ti); thumb.appendChild(tl);
-      strip.appendChild(thumb);
-    }
-
     if (i % 5 === 0) await sleep(0);
   }
 
-  setProg(97); setStatus('Saving PDF…'); await sleep(60);
-
-  // Download
   const pdfUri = pdf.output('datauristring');
-  const link   = document.getElementById('dlLink');
-  link.href     = pdfUri;
+  const link = document.createElement('a');
+  link.href = pdfUri;
   link.download = `labels_${new Date().toISOString().slice(0,10)}.pdf`;
+  link.click();
 
-  document.getElementById('resultTxt').textContent =
-    `✅ ${excelData.length} label${excelData.length!==1?'s':''} generated — ${pgW_mm.toFixed(0)}×${pgH_mm}mm each`;
-  document.getElementById('resultBar').classList.add('show');
-  document.getElementById('previewRow').classList.add('show');
-  document.getElementById('previewRow').scrollIntoView({ behavior:'smooth', block:'nearest' });
+  dlBtn.textContent = '⬇ Download PDF';
+  dlBtn.disabled = false;
+}
 
-  setProg(100); setStatus(`Done! ${excelData.length} labels in PDF`);
-  btn.disabled = false;
-  doneStep(4); doneStep(5);
+// renderLabel extended with per-label overrides
+async function renderLabelWithOverrides(canvas, row, maxFs, color, ovr) {
+  // Temporarily apply per-label overrides to zones, render, then restore
+  const saved = zones.map(z => ({ fontSize: z.fontSize, color: z.color, bgColor: z.bgColor }));
+
+  zones.forEach((z, zi) => {
+    if (ovr.fontSizes[zi] != null) z.fontSize = ovr.fontSizes[zi];
+    if (ovr.colors[zi])   z.color   = ovr.colors[zi];
+    if (ovr.bgColors[zi]) z.bgColor = ovr.bgColors[zi];
+  });
+
+  // Temporarily override text via a wrapped row
+  const rowProxy = new Proxy(row, {
+    get(target, prop) {
+      // Check if any zone zi has a text override and the prop matches that zone's column
+      for (let zi = 0; zi < zones.length; zi++) {
+        if (ovr.texts[zi] != null) {
+          const zone = zones[zi];
+          const col = colAssign[zone.key];
+          if (col === prop) return ovr.texts[zi];
+        }
+      }
+      return target[prop];
+    }
+  });
+
+  await renderLabel(canvas, rowProxy, maxFs, color);
+
+  // Restore
+  zones.forEach((z, zi) => {
+    z.fontSize = saved[zi].fontSize;
+    z.color    = saved[zi].color;
+    z.bgColor  = saved[zi].bgColor;
+  });
 }
 </script>
 
