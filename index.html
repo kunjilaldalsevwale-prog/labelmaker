@@ -455,6 +455,93 @@ let designImg = null, designDataUrl = null, designW = 0, designH = 0;
 let cleanImageData = null;  // Raw ImageData of original clean template
 let excelData = [], excelHeaders = [], colAssign = {};
 let zones = [], activeZone = null;
+
+// ═══════════════════════ LOCALSTORAGE PERSISTENCE ═══════════════════════
+const LS_KEY = 'labelstudio_v1';
+
+function saveState() {
+  try {
+    const state = {
+      designDataUrl,
+      designW,
+      designH,
+      zones: JSON.stringify(zones),
+      excelData: JSON.stringify(excelData),
+      excelHeaders: JSON.stringify(excelHeaders),
+      colAssign: JSON.stringify(colAssign),
+      textColor: (document.getElementById('textColor')||{}).value || '#1a1a1a',
+      bgColor:   (document.getElementById('bgColor')||{}).value   || '#ffffff',
+      maxFontSize: (document.getElementById('maxFontSize')||{}).value || '48',
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(state));
+  } catch(e) { /* quota exceeded or private mode — silently ignore */ }
+}
+
+async function restoreState() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+
+    // Restore zones
+    if (state.zones) zones = JSON.parse(state.zones);
+
+    // Restore excel data
+    if (state.excelData)   excelData   = JSON.parse(state.excelData);
+    if (state.excelHeaders) excelHeaders = JSON.parse(state.excelHeaders);
+    if (state.colAssign)   colAssign   = JSON.parse(state.colAssign);
+
+    // Restore UI controls
+    if (state.textColor) { const el = document.getElementById('textColor'); if(el) el.value = state.textColor; }
+    if (state.bgColor)   { const el = document.getElementById('bgColor');   if(el) el.value = state.bgColor; }
+    if (state.maxFontSize){ const el = document.getElementById('maxFontSize'); if(el) el.value = state.maxFontSize; }
+
+    // Restore design image
+    if (state.designDataUrl) {
+      designW = state.designW || 0;
+      designH = state.designH || 0;
+      await new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+          designImg = img;
+          designDataUrl = state.designDataUrl;
+          designW = img.naturalWidth;
+          designH = img.naturalHeight;
+          // Rebuild cleanImageData
+          const tmpC = document.createElement('canvas');
+          tmpC.width = designW; tmpC.height = designH;
+          const tmpCtx = tmpC.getContext('2d');
+          tmpCtx.drawImage(img, 0, 0);
+          cleanImageData = tmpCtx.getImageData(0, 0, designW, designH);
+          buildCanvas(state.designDataUrl);
+          document.getElementById('designPill').classList.add('show');
+          document.getElementById('designPillName').textContent = 'Restored design';
+          document.getElementById('designDrop').classList.add('has-file');
+          document.getElementById('clearZonesBtn').style.display = '';
+          doneStep(1); enableStep(2); enableStep(3);
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = state.designDataUrl;
+      });
+    }
+
+    // Restore excel UI
+    if (excelData.length > 0) {
+      document.getElementById('excelPill').classList.add('show');
+      document.getElementById('excelPillName').textContent = 'Restored data';
+      document.getElementById('excelDrop').classList.add('has-file');
+      buildColMapper();
+      doneStep(3); enableStep(4); enableStep(5);
+    }
+
+    // Re-render zones if we have both
+    if (designImg && zones.length > 0) {
+      renderZones();
+      checkReady();
+    }
+  } catch(e) { /* corrupted state — ignore and start fresh */ }
+}
 let isDragging = false, dragStart = {nx:0,ny:0,px:0,py:0}, drawEl = null;
 let devaFontLoaded = false;
 
@@ -551,6 +638,7 @@ function handleDesign(file) {
       document.getElementById('clearZonesBtn').style.display = '';
       setHint('Select a zone type → drag a rectangle on the image');
       setStatus(`Image loaded: ${designW}×${designH}px`);
+      saveState();
     };
     img.onerror = () => { alert('Could not load image. Please try a JPG or PNG file.'); setStatus(''); };
     img.src = dataUrl;
@@ -669,6 +757,7 @@ function onMU(e) {
   renderZones(); renderZoneList(); updateZoneBtns(); buildOverridePanel();
   if (excelHeaders.length) buildColMapper();
   checkReady();
+  saveState();
   setStatus(`Zone placed: ${ZDEFS[activeZone].label} (${Math.round(nw)}×${Math.round(nh)}px)`);
 }
 
@@ -742,6 +831,7 @@ function handleExcel(file) {
       doneStep(3); enableStep(4); enableStep(5);
       buildColMapper(); checkReady();
       setStatus(`Loaded ${excelData.length} rows, ${excelHeaders.length} columns`);
+      saveState();
     } catch(err) { alert('Could not read file: '+err.message); }
   };
   reader.readAsArrayBuffer(file);
@@ -786,7 +876,7 @@ function buildColMapper() {
         <span class="col-dot" style="background:${def.color}"></span>
         ${def.label}
       </div>
-      <select onchange="colAssign['${k}']=this.value">
+      <select onchange="colAssign['${k}']=this.value; saveState()">
         <option value="">— not mapped —</option>
         ${excelHeaders.map(h => `<option value="${h}"${h===colAssign[k]?' selected':''}>${h}</option>`).join('')}
       </select>`;
@@ -878,6 +968,7 @@ function setZoneOverride(i, prop, val) {
     zones[i][prop] = val || null;
   }
   renderZones();
+  saveState();
 }
 
 function resetZoneOverride(i) {
@@ -1240,16 +1331,23 @@ async function renderLabel(canvas, row, maxFs, color) {
     const maxW = zone.w - 16;
     let fs = zoneMax;
     let lines = [text];
-    // First try fitting on one line; if not, wrap and try smaller sizes
-    while (fs > 8) {
-      ctx.font = `${fw} ${fs}px ${ff}`;
-      lines = wrapText(ctx, text, maxW);
-      const lineH = fs * 1.25;
-      const totalH = lines.length * lineH;
-      // fits if all lines ≤ maxW AND total height ≤ zone height
-      const allFit = lines.every(l => ctx.measureText(l).width <= maxW);
-      if (allFit && totalH <= zone.h - 4) break;
-      fs -= 2;
+    if (zone.wrap) {
+      // Wrap mode: split into lines, shrink only if total height overflows
+      while (fs > 8) {
+        ctx.font = `${fw} ${fs}px ${ff}`;
+        lines = wrapText(ctx, text, maxW);
+        const totalH = lines.length * fs * 1.25;
+        if (totalH <= zone.h - 4) break;
+        fs -= 2;
+      }
+    } else {
+      // Single-line mode: shrink font until text fits width
+      while (fs > 8) {
+        ctx.font = `${fw} ${fs}px ${ff}`;
+        if (ctx.measureText(text).width <= maxW) break;
+        fs -= 2;
+      }
+      lines = [text];
     }
 
     ctx.font         = `${fw} ${fs}px ${ff}`;
@@ -1282,8 +1380,8 @@ async function previewLabels() {
   setStatus('Loading fonts…'); setProg(10);
   await loadDevaFont();
 
-  // Init per-label overrides
-  labelOverrides = excelData.map(() => ({ fontSizes:{}, colors:{}, bgColors:{}, texts:{} }));
+  // Init per-label overrides (zoneRects stores per-label x/y/w/h overrides)
+  labelOverrides = excelData.map(() => ({ fontSizes:{}, colors:{}, bgColors:{}, texts:{}, zoneRects:{} }));
 
   setProg(50); setStatus('Opening editor…'); await sleep(30);
   editorIdx = 0;
@@ -1385,16 +1483,27 @@ function editorDrawZoneOverlays() {
   zones.forEach((zone, zi) => {
     const def = ZDEFS[zone.key];
     const selected = editorSelectedZone === zi;
+    // Use per-label rect if it exists, otherwise fall back to global zone rect
+    const ovr = labelOverrides[editorIdx] || {};
+    const lr  = ovr.zoneRects && ovr.zoneRects[zi] ? ovr.zoneRects[zi] : zone;
 
     const el = document.createElement('div');
     el.style.cssText = `
       position:absolute;
-      left:${zone.x * scaleX()}px; top:${zone.y * scaleY()}px;
-      width:${zone.w * scaleX()}px; height:${zone.h * scaleY()}px;
+      left:${lr.x * scaleX()}px; top:${lr.y * scaleY()}px;
+      width:${lr.w * scaleX()}px; height:${lr.h * scaleY()}px;
       border:2px solid ${selected ? def.color : def.color+'88'};
       background:${selected ? def.color+'22' : 'transparent'};
       box-sizing:border-box; border-radius:3px; cursor:move;
     `;
+
+    // Helper: get/init per-label rect for this zone
+    function getLabelRect() {
+      const o = labelOverrides[editorIdx];
+      if (!o.zoneRects) o.zoneRects = {};
+      if (!o.zoneRects[zi]) o.zoneRects[zi] = { x: zone.x, y: zone.y, w: zone.w, h: zone.h };
+      return o.zoneRects[zi];
+    }
 
     // ── MOVE (drag the zone body) ──
     el.addEventListener('mousedown', e => {
@@ -1404,11 +1513,13 @@ function editorDrawZoneOverlays() {
       editorDrawZoneOverlays();
       loadZoneToolbar(zi);
       const startX = e.clientX, startY = e.clientY;
-      const origX = zone.x, origY = zone.y;
+      const rect0 = getLabelRect();
+      const origX = rect0.x, origY = rect0.y;
       const sx = scaleX(), sy = scaleY();
       function onMove(ev) {
-        zone.x = Math.max(0, origX + (ev.clientX - startX) / sx);
-        zone.y = Math.max(0, origY + (ev.clientY - startY) / sy);
+        const r = getLabelRect();
+        r.x = Math.max(0, origX + (ev.clientX - startX) / sx);
+        r.y = Math.max(0, origY + (ev.clientY - startY) / sy);
         editorDrawZoneOverlays();
         editorRender();
       }
@@ -1431,14 +1542,14 @@ function editorDrawZoneOverlays() {
     // ── RESIZE HANDLES (8 directions) ──
     if (selected) {
       const handles = [
-        { cur:'nw-resize', top:'-5px', left:'-5px',   onDrag:(dx,dy,oz)=>{ zone.x=oz.x+dx/scaleX(); zone.y=oz.y+dy/scaleY(); zone.w=oz.w-dx/scaleX(); zone.h=oz.h-dy/scaleY(); } },
-        { cur:'n-resize',  top:'-5px', left:'50%',     onDrag:(dx,dy,oz)=>{ zone.y=oz.y+dy/scaleY(); zone.h=oz.h-dy/scaleY(); } },
-        { cur:'ne-resize', top:'-5px', right:'-5px',   onDrag:(dx,dy,oz)=>{ zone.y=oz.y+dy/scaleY(); zone.w=oz.w+dx/scaleX(); zone.h=oz.h-dy/scaleY(); } },
-        { cur:'e-resize',  top:'50%',  right:'-5px',   onDrag:(dx,dy,oz)=>{ zone.w=oz.w+dx/scaleX(); } },
-        { cur:'se-resize', bottom:'-5px', right:'-5px',onDrag:(dx,dy,oz)=>{ zone.w=oz.w+dx/scaleX(); zone.h=oz.h+dy/scaleY(); } },
-        { cur:'s-resize',  bottom:'-5px', left:'50%',  onDrag:(dx,dy,oz)=>{ zone.h=oz.h+dy/scaleY(); } },
-        { cur:'sw-resize', bottom:'-5px', left:'-5px', onDrag:(dx,dy,oz)=>{ zone.x=oz.x+dx/scaleX(); zone.w=oz.w-dx/scaleX(); zone.h=oz.h+dy/scaleY(); } },
-        { cur:'w-resize',  top:'50%',  left:'-5px',    onDrag:(dx,dy,oz)=>{ zone.x=oz.x+dx/scaleX(); zone.w=oz.w-dx/scaleX(); } },
+        { cur:'nw-resize', top:'-5px', left:'-5px',   onDrag:(dx,dy,oz,r)=>{ r.x=oz.x+dx/scaleX(); r.y=oz.y+dy/scaleY(); r.w=oz.w-dx/scaleX(); r.h=oz.h-dy/scaleY(); } },
+        { cur:'n-resize',  top:'-5px', left:'50%',     onDrag:(dx,dy,oz,r)=>{ r.y=oz.y+dy/scaleY(); r.h=oz.h-dy/scaleY(); } },
+        { cur:'ne-resize', top:'-5px', right:'-5px',   onDrag:(dx,dy,oz,r)=>{ r.y=oz.y+dy/scaleY(); r.w=oz.w+dx/scaleX(); r.h=oz.h-dy/scaleY(); } },
+        { cur:'e-resize',  top:'50%',  right:'-5px',   onDrag:(dx,dy,oz,r)=>{ r.w=oz.w+dx/scaleX(); } },
+        { cur:'se-resize', bottom:'-5px', right:'-5px',onDrag:(dx,dy,oz,r)=>{ r.w=oz.w+dx/scaleX(); r.h=oz.h+dy/scaleY(); } },
+        { cur:'s-resize',  bottom:'-5px', left:'50%',  onDrag:(dx,dy,oz,r)=>{ r.h=oz.h+dy/scaleY(); } },
+        { cur:'sw-resize', bottom:'-5px', left:'-5px', onDrag:(dx,dy,oz,r)=>{ r.x=oz.x+dx/scaleX(); r.w=oz.w-dx/scaleX(); r.h=oz.h+dy/scaleY(); } },
+        { cur:'w-resize',  top:'50%',  left:'-5px',    onDrag:(dx,dy,oz,r)=>{ r.x=oz.x+dx/scaleX(); r.w=oz.w-dx/scaleX(); } },
       ];
       handles.forEach(h => {
         const hEl = document.createElement('div');
@@ -1448,11 +1559,12 @@ function editorDrawZoneOverlays() {
         hEl.addEventListener('mousedown', e => {
           e.preventDefault(); e.stopPropagation();
           const startX = e.clientX, startY = e.clientY;
-          const oz = { x:zone.x, y:zone.y, w:zone.w, h:zone.h };
+          const r = getLabelRect();
+          const oz = { x:r.x, y:r.y, w:r.w, h:r.h };
           function onMove(ev) {
-            h.onDrag(ev.clientX - startX, ev.clientY - startY, oz);
-            zone.w = Math.max(20, zone.w);
-            zone.h = Math.max(10, zone.h);
+            h.onDrag(ev.clientX - startX, ev.clientY - startY, oz, r);
+            r.w = Math.max(20, r.w);
+            r.h = Math.max(10, r.h);
             editorDrawZoneOverlays();
             editorRender();
           }
@@ -1539,12 +1651,17 @@ async function editorNext() { if(editorIdx<excelData.length-1){ editorIdx++; edi
 // renderLabel extended with per-label overrides
 async function renderLabelWithOverrides(canvas, row, maxFs, color, ovr) {
   // Temporarily apply per-label overrides to zones, render, then restore
-  const saved = zones.map(z => ({ fontSize: z.fontSize, color: z.color, bgColor: z.bgColor }));
+  const saved = zones.map(z => ({ fontSize: z.fontSize, color: z.color, bgColor: z.bgColor, x: z.x, y: z.y, w: z.w, h: z.h }));
 
   zones.forEach((z, zi) => {
     if (ovr.fontSizes[zi] != null) z.fontSize = ovr.fontSizes[zi];
     if (ovr.colors[zi])   z.color   = ovr.colors[zi];
     if (ovr.bgColors[zi]) z.bgColor = ovr.bgColors[zi];
+    // Apply per-label zone position/size if set
+    if (ovr.zoneRects && ovr.zoneRects[zi]) {
+      const r = ovr.zoneRects[zi];
+      z.x = r.x; z.y = r.y; z.w = r.w; z.h = r.h;
+    }
   });
 
   // Temporarily override text via a wrapped row
@@ -1569,8 +1686,12 @@ async function renderLabelWithOverrides(canvas, row, maxFs, color, ovr) {
     z.fontSize = saved[zi].fontSize;
     z.color    = saved[zi].color;
     z.bgColor  = saved[zi].bgColor;
+    z.x = saved[zi].x; z.y = saved[zi].y; z.w = saved[zi].w; z.h = saved[zi].h;
   });
 }
+
+// ═══════════════════════ RESTORE ON PAGE LOAD ═══════════════════════
+window.addEventListener('DOMContentLoaded', () => { restoreState(); });
 </script>
 
 <!-- Devanagari font injected here -->
