@@ -1374,12 +1374,22 @@ async function renderLabel(canvas, row, maxFs, color) {
         }
         if (lines.length === 0) lines = [text];
       } else {
-        ctx.font = `${fw} ${fs}px ${ff}`;
-        if (!zone.wrap && ctx.measureText(text).width <= maxW) {
-          lines = [text];
-        } else {
-          lines = wrapText(ctx, text, maxW);
+        // Override sets the MAX font size — still shrink to fit the zone
+        let guard = 0;
+        while (fs > 8 && guard++ < 200) {
+          ctx.font = `${fw} ${fs}px ${ff}`;
+          const fitsWidth = ctx.measureText(text).width <= maxW;
+          const lineH1 = fs * 1.25;
+          if (fitsWidth && !zone.wrap) {
+            if (lineH1 <= maxH) { lines = [text]; break; }
+          } else {
+            lines = wrapText(ctx, text, maxW);
+            const totalH = lines.length * fs * 1.25;
+            if (totalH <= maxH) break;
+          }
+          fs -= 2;
         }
+        if (lines.length === 0) lines = [text];
       }
     }
 
@@ -1428,9 +1438,16 @@ async function renderLabel(canvas, row, maxFs, color) {
                zone.align === 'right' ? zone.x + zone.w - 8 :
                zone.x + zone.w / 2;
     const startY = textStartY + lineH / 2;
+
+    // Clip to zone so text never bleeds outside the box
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(zone.x - 2, zone.y - 2, zone.w + 4, zone.h + 4);
+    ctx.clip();
     lines.forEach((line, li) => {
       ctx.fillText(line, tx, startY + li * lineH, maxW);
     });
+    ctx.restore();
   }
 }
 
