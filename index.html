@@ -1312,22 +1312,33 @@ async function renderLabel(canvas, row, maxFs, color) {
                       Math.round(zone.w), Math.round(zone.h))
   );
 
+  // Word-wrap helper (shared across zones)
+  function wrapText(ctx, text, maxW) {
+    const words = text.split(' ');
+    const lines = [];
+    let cur = '';
+    for (const word of words) {
+      const test = cur ? cur + ' ' + word : word;
+      if (ctx.measureText(test).width > maxW && cur) {
+        lines.push(cur);
+        cur = word;
+      } else {
+        cur = test;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
   for (let zi=0; zi<zones.length; zi++) {
     const zone = zones[zi];
-    // Use manual bgColor if set, else auto-sampled color from template
-    ctx.fillStyle = zone.bgColor || zoneBgColors[zi];
-    ctx.fillRect(Math.round(zone.x), Math.round(zone.y),
-                 Math.round(zone.w), Math.round(zone.h));
 
     const text = getZoneText(zone, row);
-    if (!text) continue;
-
     const key = zone.key;
     const isHindi = key === 'hindi';
     // Determine font family: zone override > default per type
     let ff;
     if (zone.fontFamily) {
-      // Force-load Google Font so canvas can use it
       try { await document.fonts.load(`700 40px '${zone.fontFamily}'`); } catch(e){}
       ff = `'${zone.fontFamily}', sans-serif`;
     } else if (isHindi && devaFontLoaded) {
@@ -1337,61 +1348,58 @@ async function renderLabel(canvas, row, maxFs, color) {
     }
     const fw = (key==='name' || key==='price') ? '800' : '700';
 
-    // Word-wrap helper: split text into lines that fit within maxW
-    function wrapText(ctx, text, maxW) {
-      const words = text.split(' ');
-      const lines = [];
-      let cur = '';
-      for (const word of words) {
-        const test = cur ? cur + ' ' + word : word;
-        if (ctx.measureText(test).width > maxW && cur) {
-          lines.push(cur);
-          cur = word;
-        } else {
-          cur = test;
-        }
-      }
-      if (cur) lines.push(cur);
-      return lines;
-    }
-
-    // Use zone override if set, else auto-fit from maxFs
+    // Calculate font size and lines first, so bg fill covers actual text area
     const zoneMax = zone.fontSize || maxFs;
     const maxW = Math.max(zone.w - 16, 10);
     let fs = zoneMax;
-    let lines = [text];
+    let lines = text ? [text] : [];
     const hasOverride = !!zone.fontSize;
 
-    const maxH = Math.max(zone.h - 4, 10);
-    if (!hasOverride) {
-      // Auto mode: shrink font until text fits both width AND height.
-      // Wraps to multiple lines only when needed.
-      let guard = 0;
-      while (fs > 8 && guard++ < 200) {
-        ctx.font = `${fw} ${fs}px ${ff}`;
-        const fitsWidth = ctx.measureText(text).width <= maxW;
-        const lineH1 = fs * 1.25;
-        if (fitsWidth && !zone.wrap) {
-          // Single line — check it fits height too
-          if (lineH1 <= maxH) { lines = [text]; break; }
-        } else {
-          // Wrap and check total height fits
-          lines = wrapText(ctx, text, maxW);
-          const totalH = lines.length * fs * 1.25;
-          if (totalH <= maxH) break;
+    if (text) {
+      const maxH = Math.max(zone.h - 4, 10);
+      if (!hasOverride) {
+        let guard = 0;
+        while (fs > 8 && guard++ < 200) {
+          ctx.font = `${fw} ${fs}px ${ff}`;
+          const fitsWidth = ctx.measureText(text).width <= maxW;
+          const lineH1 = fs * 1.25;
+          if (fitsWidth && !zone.wrap) {
+            if (lineH1 <= maxH) { lines = [text]; break; }
+          } else {
+            lines = wrapText(ctx, text, maxW);
+            const totalH = lines.length * fs * 1.25;
+            if (totalH <= maxH) break;
+          }
+          fs -= 2;
         }
-        fs -= 2;
-      }
-      if (lines.length === 0) lines = [text]; // safety
-    } else {
-      // Explicit font size set — wrap if overflowing width, never shrink
-      ctx.font = `${fw} ${fs}px ${ff}`;
-      if (!zone.wrap && ctx.measureText(text).width <= maxW) {
-        lines = [text];
+        if (lines.length === 0) lines = [text];
       } else {
-        lines = wrapText(ctx, text, maxW);
+        ctx.font = `${fw} ${fs}px ${ff}`;
+        if (!zone.wrap && ctx.measureText(text).width <= maxW) {
+          lines = [text];
+        } else {
+          lines = wrapText(ctx, text, maxW);
+        }
       }
     }
+
+    // Compute actual rendered text bounds
+    const lineH = fs * 1.25;
+    const totalTextH = lines.length * lineH;
+    const textStartY = zone.y + (zone.h - totalTextH) / 2;
+    const textEndY = textStartY + totalTextH;
+
+    // Fill bg over the FULL area that text actually occupies
+    // (covers template bleed-through above/below zone rect)
+    const fillX = Math.round(zone.x);
+    const fillY = Math.round(Math.min(zone.y, textStartY) - 2);
+    const fillW = Math.round(zone.w);
+    const fillH = Math.round(Math.max(zone.y + zone.h, textEndY) - fillY + 2);
+
+    ctx.fillStyle = zone.bgColor || zoneBgColors[zi];
+    ctx.fillRect(fillX, fillY, fillW, fillH);
+
+    if (!text) continue;
 
     ctx.font         = `${fw} ${fs}px ${ff}`;
     ctx.fillStyle    = zone.color || color;
@@ -1400,9 +1408,7 @@ async function renderLabel(canvas, row, maxFs, color) {
     const tx = zone.align === 'left'  ? zone.x + 8 :
                zone.align === 'right' ? zone.x + zone.w - 8 :
                zone.x + zone.w / 2;
-    const lineH = fs * 1.25;
-    const totalH = lines.length * lineH;
-    const startY = zone.y + (zone.h - totalH) / 2 + lineH / 2;
+    const startY = textStartY + lineH / 2;
     lines.forEach((line, li) => {
       ctx.fillText(line, tx, startY + li * lineH, maxW);
     });
