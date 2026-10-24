@@ -1384,17 +1384,36 @@ async function renderLabel(canvas, row, maxFs, color) {
     }
 
     // Compute actual rendered text bounds
+    ctx.font = `${fw} ${fs}px ${ff}`;
     const lineH = fs * 1.25;
     const totalTextH = lines.length * lineH;
     const textStartY = zone.y + (zone.h - totalTextH) / 2;
     const textEndY = textStartY + totalTextH;
 
-    // Fill bg over the FULL area that text actually occupies
-    // (covers template bleed-through above/below zone rect)
-    const fillX = Math.round(zone.x);
-    const fillY = Math.round(Math.min(zone.y, textStartY) - 2);
-    const fillW = Math.round(zone.w);
-    const fillH = Math.round(Math.max(zone.y + zone.h, textEndY) - fillY + 2);
+    // Measure widest line to know actual horizontal extent
+    const maxLineW = lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
+    const tx0 = zone.align === 'left'  ? zone.x + 8 :
+                zone.align === 'right' ? zone.x + zone.w - 8 :
+                zone.x + zone.w / 2;
+    let textLeft, textRight;
+    if (zone.align === 'left') {
+      textLeft  = tx0;
+      textRight = tx0 + maxLineW;
+    } else if (zone.align === 'right') {
+      textLeft  = tx0 - maxLineW;
+      textRight = tx0;
+    } else { // center
+      textLeft  = tx0 - maxLineW / 2;
+      textRight = tx0 + maxLineW / 2;
+    }
+
+    // Fill bg over the FULL area that text actually occupies (with 4px padding)
+    const fillX = Math.round(Math.min(zone.x, textLeft)   - 4);
+    const fillY = Math.round(Math.min(zone.y, textStartY) - 4);
+    const fillX2 = Math.round(Math.max(zone.x + zone.w, textRight)  + 4);
+    const fillY2 = Math.round(Math.max(zone.y + zone.h, textEndY)   + 4);
+    const fillW = fillX2 - fillX;
+    const fillH = fillY2 - fillY;
 
     ctx.fillStyle = zone.bgColor || zoneBgColors[zi];
     ctx.fillRect(fillX, fillY, fillW, fillH);
