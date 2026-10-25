@@ -472,6 +472,7 @@ function saveState() {
       excelData: JSON.stringify(excelData),
       excelHeaders: JSON.stringify(excelHeaders),
       colAssign: JSON.stringify(colAssign),
+      labelOverrides: JSON.stringify(labelOverrides),
       textColor: (document.getElementById('textColor')||{}).value || '#1a1a1a',
       bgColor:   (document.getElementById('bgColor')||{}).value   || '#ffffff',
       maxFontSize: (document.getElementById('maxFontSize')||{}).value || '48',
@@ -493,6 +494,16 @@ async function restoreState() {
     if (state.excelData)   excelData   = JSON.parse(state.excelData);
     if (state.excelHeaders) excelHeaders = JSON.parse(state.excelHeaders);
     if (state.colAssign)   colAssign   = JSON.parse(state.colAssign);
+
+    // Restore per-label overrides (font sizes, colors, zone rects, wraps, texts)
+    if (state.labelOverrides) {
+      labelOverrides = JSON.parse(state.labelOverrides);
+      // Ensure every entry has all required keys
+      labelOverrides = labelOverrides.map(o => ({
+        fontSizes: o.fontSizes||{}, colors: o.colors||{}, bgColors: o.bgColors||{},
+        texts: o.texts||{}, zoneRects: o.zoneRects||{}, wraps: o.wraps||{}
+      }));
+    }
 
     // Restore UI controls
     if (state.textColor) { const el = document.getElementById('textColor'); if(el) el.value = state.textColor; }
@@ -1636,6 +1647,7 @@ function editorDrawZoneOverlays() {
       function onUp() {
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
+        saveState();
       }
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
@@ -1681,6 +1693,7 @@ function editorDrawZoneOverlays() {
           function onUp() {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
+            saveState();
           }
           window.addEventListener('mousemove', onMove);
           window.addEventListener('mouseup', onUp);
@@ -1742,18 +1755,18 @@ function loadZoneToolbar(zi) {
   document.getElementById('ztWrap').checked = ovr.wraps && ovr.wraps[zi] ? true : false;
 }
 
-async function ztApplyWrap()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].wraps[zi]=document.getElementById('ztWrap').checked; await editorRender(); }
-async function ztApplyText()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].texts[zi]=document.getElementById('ztText').value; await editorRender(); }
-async function ztApplySize()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].fontSizes[zi]=parseInt(document.getElementById('ztSize').value)||null; await editorRender(); }
+async function ztApplyWrap()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].wraps[zi]=document.getElementById('ztWrap').checked; await editorRender(); saveState(); }
+async function ztApplyText()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].texts[zi]=document.getElementById('ztText').value; await editorRender(); saveState(); }
+async function ztApplySize()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].fontSizes[zi]=parseInt(document.getElementById('ztSize').value)||null; await editorRender(); saveState(); }
 async function ztApplySizeAll() {
   const zi=editorSelectedZone; if(zi<0)return;
   const fs=parseInt(document.getElementById('ztSize').value)||null;
   labelOverrides.forEach(ovr => { ovr.fontSizes[zi]=fs; });
-  await editorRender();
+  await editorRender(); saveState();
 }
-async function ztApplyAlign() { const zi=editorSelectedZone; if(zi<0)return; zones[zi].align=document.getElementById('ztAlign').value; await editorRender(); }
-async function ztApplyColor() { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].colors[zi]=document.getElementById('ztColor').value; await editorRender(); }
-async function ztApplyBg()    { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].bgColors[zi]=document.getElementById('ztBg').value; await editorRender(); }
+async function ztApplyAlign() { const zi=editorSelectedZone; if(zi<0)return; zones[zi].align=document.getElementById('ztAlign').value; await editorRender(); saveState(); }
+async function ztApplyColor() { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].colors[zi]=document.getElementById('ztColor').value; await editorRender(); saveState(); }
+async function ztApplyBg()    { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].bgColors[zi]=document.getElementById('ztBg').value; await editorRender(); saveState(); }
 async function ztReset() {
   const zi=editorSelectedZone; if(zi<0)return;
   const ovr=labelOverrides[editorIdx];
