@@ -463,11 +463,9 @@ let zones = [], activeZone = null;
 const LS_KEY = 'labelstudio_v1';
 
 function saveState() {
+  // Save edits separately first (small, always fits)
   try {
-    const state = {
-      designDataUrl,
-      designW,
-      designH,
+    const edits = {
       zones: JSON.stringify(zones),
       excelData: JSON.stringify(excelData),
       excelHeaders: JSON.stringify(excelHeaders),
@@ -476,29 +474,41 @@ function saveState() {
       textColor: (document.getElementById('textColor')||{}).value || '#1a1a1a',
       bgColor:   (document.getElementById('bgColor')||{}).value   || '#ffffff',
       maxFontSize: (document.getElementById('maxFontSize')||{}).value || '48',
+      designW, designH,
     };
-    localStorage.setItem(LS_KEY, JSON.stringify(state));
-  } catch(e) { /* quota exceeded or private mode — silently ignore */ }
+    localStorage.setItem(LS_KEY + '_edits', JSON.stringify(edits));
+  } catch(e) {}
+
+  // Try to save design image separately (may fail if too large — that's OK)
+  try {
+    if (designDataUrl) {
+      localStorage.setItem(LS_KEY + '_design', JSON.stringify({ designDataUrl, designW, designH }));
+    }
+  } catch(e) {
+    // Image too large for localStorage — edits are still saved above
+  }
 }
 
 async function restoreState() {
   try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return;
-    const state = JSON.parse(raw);
+    // Read edits (always small, always saved)
+    const rawEdits = localStorage.getItem(LS_KEY + '_edits');
+    // Also try old single-key format for backward compat
+    const rawOld = localStorage.getItem(LS_KEY);
+    const edits = rawEdits ? JSON.parse(rawEdits) : (rawOld ? JSON.parse(rawOld) : null);
+    if (!edits) return;
 
     // Restore zones
-    if (state.zones) zones = JSON.parse(state.zones);
+    if (edits.zones) zones = JSON.parse(edits.zones);
 
     // Restore excel data
-    if (state.excelData)   excelData   = JSON.parse(state.excelData);
-    if (state.excelHeaders) excelHeaders = JSON.parse(state.excelHeaders);
-    if (state.colAssign)   colAssign   = JSON.parse(state.colAssign);
+    if (edits.excelData)    excelData    = JSON.parse(edits.excelData);
+    if (edits.excelHeaders)  excelHeaders  = JSON.parse(edits.excelHeaders);
+    if (edits.colAssign)    colAssign    = JSON.parse(edits.colAssign);
 
-    // Restore per-label overrides (font sizes, colors, zone rects, wraps, texts)
-    if (state.labelOverrides) {
-      labelOverrides = JSON.parse(state.labelOverrides);
-      // Ensure every entry has all required keys
+    // Restore per-label overrides
+    if (edits.labelOverrides) {
+      labelOverrides = JSON.parse(edits.labelOverrides);
       labelOverrides = labelOverrides.map(o => ({
         fontSizes: o.fontSizes||{}, colors: o.colors||{}, bgColors: o.bgColors||{},
         texts: o.texts||{}, zoneRects: o.zoneRects||{}, wraps: o.wraps||{}
@@ -506,28 +516,29 @@ async function restoreState() {
     }
 
     // Restore UI controls
-    if (state.textColor) { const el = document.getElementById('textColor'); if(el) el.value = state.textColor; }
-    if (state.bgColor)   { const el = document.getElementById('bgColor');   if(el) el.value = state.bgColor; }
-    if (state.maxFontSize){ const el = document.getElementById('maxFontSize'); if(el) el.value = state.maxFontSize; }
+    if (edits.textColor)   { const el = document.getElementById('textColor');   if(el) el.value = edits.textColor; }
+    if (edits.bgColor)     { const el = document.getElementById('bgColor');     if(el) el.value = edits.bgColor; }
+    if (edits.maxFontSize) { const el = document.getElementById('maxFontSize'); if(el) el.value = edits.maxFontSize; }
 
-    // Restore design image
-    if (state.designDataUrl) {
-      designW = state.designW || 0;
-      designH = state.designH || 0;
+    // Restore design image (stored separately — may be missing if too large)
+    const rawDesign = localStorage.getItem(LS_KEY + '_design');
+    const designSrc = rawDesign ? JSON.parse(rawDesign).designDataUrl
+                    : (rawOld && JSON.parse(rawOld).designDataUrl ? JSON.parse(rawOld).designDataUrl : null);
+
+    if (designSrc) {
       await new Promise(resolve => {
         const img = new Image();
         img.onload = () => {
           designImg = img;
-          designDataUrl = state.designDataUrl;
+          designDataUrl = designSrc;
           designW = img.naturalWidth;
           designH = img.naturalHeight;
-          // Rebuild cleanImageData
           const tmpC = document.createElement('canvas');
           tmpC.width = designW; tmpC.height = designH;
           const tmpCtx = tmpC.getContext('2d');
           tmpCtx.drawImage(img, 0, 0);
           cleanImageData = tmpCtx.getImageData(0, 0, designW, designH);
-          buildCanvas(state.designDataUrl);
+          buildCanvas(designSrc);
           document.getElementById('designPill').classList.add('show');
           document.getElementById('designPillName').textContent = 'Restored design';
           document.getElementById('designDrop').classList.add('has-file');
@@ -536,8 +547,11 @@ async function restoreState() {
           resolve();
         };
         img.onerror = () => resolve();
-        img.src = state.designDataUrl;
+        img.src = designSrc;
       });
+    } else if (edits.zones && JSON.parse(edits.zones).length > 0) {
+      // Edits exist but image didn't fit in storage — prompt re-upload
+      setStatus('⚠️ Please re-upload your design image — your label edits have been preserved.');
     }
 
     // Restore excel UI
@@ -554,7 +568,7 @@ async function restoreState() {
       renderZones();
       checkReady();
     }
-  } catch(e) { /* corrupted state — ignore and start fresh */ }
+  } catch(e) { /* corrupted state — ignore */ }
 }
 let isDragging = false, dragStart = {nx:0,ny:0,px:0,py:0}, drawEl = null;
 let devaFontLoaded = false;
@@ -670,7 +684,7 @@ function resetDesign() {
   document.getElementById('previewRow').innerHTML = '';
   disableStep(3); disableStep(4); disableStep(5);
   clearDesign();
-  try { localStorage.removeItem('labelstudio_v1'); } catch(e) {}
+  try { localStorage.removeItem('labelstudio_v1'); localStorage.removeItem('labelstudio_v1_edits'); localStorage.removeItem('labelstudio_v1_design'); } catch(e) {}
 }
 
 function clearDesign() {
