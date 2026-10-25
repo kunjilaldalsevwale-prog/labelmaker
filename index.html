@@ -385,6 +385,7 @@ select:focus{border-color:var(--accent)}
       <button onclick="editorPrev()" id="editorPrevBtn" style="background:#333;border:none;color:#ccc;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.8rem">◀ Prev</button>
       <span id="editorCounter" style="font-size:.8rem;color:#888;min-width:70px;text-align:center"></span>
       <button onclick="editorNext()" id="editorNextBtn" style="background:#333;border:none;color:#ccc;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.8rem">Next ▶</button>
+      <button onclick="deleteCurrentLabel()" style="background:#5a1a1a;border:1px solid #8b2222;color:#ff8888;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.8rem" title="Remove this label from the list">🗑 Delete Label</button>
       <button onclick="downloadPDF()" style="background:#6c47ff;border:none;color:#fff;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:.8rem;font-weight:600">⬇ Download PDF</button>
     </div>
     <!-- Zone toolbar (shown when zone selected) -->
@@ -393,6 +394,7 @@ select:focus{border-color:var(--accent)}
       <input type="text" id="ztText" oninput="ztApplyText()" style="flex:1;min-width:140px;padding:4px 8px;background:#111;border:1px solid #444;border-radius:5px;color:#eee;font-size:.8rem" placeholder="Edit text…"/>
       <label style="font-size:.72rem;color:#888">Size</label>
       <input type="number" id="ztSize" min="6" max="200" oninput="ztApplySize()" style="width:60px;padding:4px 6px;background:#111;border:1px solid #444;border-radius:5px;color:#eee;font-size:.8rem"/>
+      <button onclick="ztApplySizeAll()" style="background:#1a3a1a;border:1px solid #2a6a2a;color:#6dff6d;padding:4px 9px;border-radius:5px;cursor:pointer;font-size:.72rem" title="Apply this font size to all labels">Apply to All</button>
       <label style="font-size:.72rem;color:#888">Align</label>
       <select id="ztAlign" onchange="ztApplyAlign()" style="padding:4px 7px;background:#111;border:1px solid #444;border-radius:5px;color:#eee;font-size:.8rem">
         <option value="left">Left</option>
@@ -648,7 +650,6 @@ function handleDesign(file) {
 }
 
 function resetDesign() {
-  if (!confirm('Delete this design and start over? All zones and label edits will be lost.')) return;
   closeEditor();
   labelOverrides = [];
   excelData = []; excelHeaders = []; colAssign = {};
@@ -1744,6 +1745,12 @@ function loadZoneToolbar(zi) {
 async function ztApplyWrap()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].wraps[zi]=document.getElementById('ztWrap').checked; await editorRender(); }
 async function ztApplyText()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].texts[zi]=document.getElementById('ztText').value; await editorRender(); }
 async function ztApplySize()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].fontSizes[zi]=parseInt(document.getElementById('ztSize').value)||null; await editorRender(); }
+async function ztApplySizeAll() {
+  const zi=editorSelectedZone; if(zi<0)return;
+  const fs=parseInt(document.getElementById('ztSize').value)||null;
+  labelOverrides.forEach(ovr => { ovr.fontSizes[zi]=fs; });
+  await editorRender();
+}
 async function ztApplyAlign() { const zi=editorSelectedZone; if(zi<0)return; zones[zi].align=document.getElementById('ztAlign').value; await editorRender(); }
 async function ztApplyColor() { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].colors[zi]=document.getElementById('ztColor').value; await editorRender(); }
 async function ztApplyBg()    { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].bgColors[zi]=document.getElementById('ztBg').value; await editorRender(); }
@@ -1757,6 +1764,17 @@ async function ztReset() {
 
 async function editorPrev() { if(editorIdx>0){ editorIdx--; editorSelectedZone=-1; document.getElementById('zoneToolbar').style.display='none'; await editorRender(); } }
 async function editorNext() { if(editorIdx<excelData.length-1){ editorIdx++; editorSelectedZone=-1; document.getElementById('zoneToolbar').style.display='none'; await editorRender(); } }
+
+async function deleteCurrentLabel() {
+  if (excelData.length <= 1) { alert('Cannot delete the only label.'); return; }
+  excelData.splice(editorIdx, 1);
+  labelOverrides.splice(editorIdx, 1);
+  if (editorIdx >= excelData.length) editorIdx = excelData.length - 1;
+  editorSelectedZone = -1;
+  document.getElementById('zoneToolbar').style.display = 'none';
+  saveState();
+  await editorRender();
+}
 
 // renderLabel extended with per-label overrides
 async function renderLabelWithOverrides(canvas, row, maxFs, color, ovr) {
