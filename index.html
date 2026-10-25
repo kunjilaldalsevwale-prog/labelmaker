@@ -1560,6 +1560,13 @@ async function editorRender() {
   _editorRenderPending = false;
 }
 
+// Debounced saveState — only writes to localStorage 800ms after last call
+let _saveTimer = null;
+function saveStateSoon() {
+  if (_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => { saveState(); _saveTimer = null; }, 800);
+}
+
 async function openEditor() {
   editorMaxFs = parseInt(document.getElementById('fontSize').value) || 60;
   editorColor = document.getElementById('textColor').value;
@@ -1713,11 +1720,11 @@ function editorDrawZoneOverlays() {
       const btnM = document.createElement('button');
       btnM.textContent = '−';
       btnM.style.cssText = 'background:none;border:none;color:#eee;font-size:1rem;cursor:pointer;padding:0 2px;line-height:1';
-      btnM.onclick = async e => { e.stopPropagation(); const v=Math.max(6,fsVal()-2); labelOverrides[editorIdx].fontSizes[zi]=v; fsSpan.textContent=v+'px'; document.getElementById('ztSize').value=v; await editorRender(); };
+      btnM.onclick = async e => { e.stopPropagation(); const v=Math.max(6,fsVal()-2); labelOverrides[editorIdx].fontSizes[zi]=v; fsSpan.textContent=v+'px'; document.getElementById('ztSize').value=v; await editorRender(); saveStateSoon(); };
       const btnP = document.createElement('button');
       btnP.textContent = '+';
       btnP.style.cssText = 'background:none;border:none;color:#eee;font-size:1rem;cursor:pointer;padding:0 2px;line-height:1';
-      btnP.onclick = async e => { e.stopPropagation(); const v=Math.min(200,fsVal()+2); labelOverrides[editorIdx].fontSizes[zi]=v; fsSpan.textContent=v+'px'; document.getElementById('ztSize').value=v; await editorRender(); };
+      btnP.onclick = async e => { e.stopPropagation(); const v=Math.min(200,fsVal()+2); labelOverrides[editorIdx].fontSizes[zi]=v; fsSpan.textContent=v+'px'; document.getElementById('ztSize').value=v; await editorRender(); saveStateSoon(); };
       pill.appendChild(btnM); pill.appendChild(fsSpan); pill.appendChild(btnP);
       el.appendChild(pill);
     }
@@ -1755,18 +1762,18 @@ function loadZoneToolbar(zi) {
   document.getElementById('ztWrap').checked = ovr.wraps && ovr.wraps[zi] ? true : false;
 }
 
-async function ztApplyWrap()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].wraps[zi]=document.getElementById('ztWrap').checked; await editorRender(); saveState(); }
-async function ztApplyText()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].texts[zi]=document.getElementById('ztText').value; await editorRender(); saveState(); }
-async function ztApplySize()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].fontSizes[zi]=parseInt(document.getElementById('ztSize').value)||null; await editorRender(); saveState(); }
+async function ztApplyWrap()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].wraps[zi]=document.getElementById('ztWrap').checked; await editorRender(); saveStateSoon(); }
+async function ztApplyText()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].texts[zi]=document.getElementById('ztText').value; await editorRender(); saveStateSoon(); }
+async function ztApplySize()  { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].fontSizes[zi]=parseInt(document.getElementById('ztSize').value)||null; await editorRender(); saveStateSoon(); }
 async function ztApplySizeAll() {
   const zi=editorSelectedZone; if(zi<0)return;
   const fs=parseInt(document.getElementById('ztSize').value)||null;
   labelOverrides.forEach(ovr => { ovr.fontSizes[zi]=fs; });
-  await editorRender(); saveState();
+  await editorRender(); saveStateSoon();
 }
-async function ztApplyAlign() { const zi=editorSelectedZone; if(zi<0)return; zones[zi].align=document.getElementById('ztAlign').value; await editorRender(); saveState(); }
-async function ztApplyColor() { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].colors[zi]=document.getElementById('ztColor').value; await editorRender(); saveState(); }
-async function ztApplyBg()    { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].bgColors[zi]=document.getElementById('ztBg').value; await editorRender(); saveState(); }
+async function ztApplyAlign() { const zi=editorSelectedZone; if(zi<0)return; zones[zi].align=document.getElementById('ztAlign').value; await editorRender(); saveStateSoon(); }
+async function ztApplyColor() { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].colors[zi]=document.getElementById('ztColor').value; await editorRender(); saveStateSoon(); }
+async function ztApplyBg()    { const zi=editorSelectedZone; if(zi<0)return; labelOverrides[editorIdx].bgColors[zi]=document.getElementById('ztBg').value; await editorRender(); saveStateSoon(); }
 async function ztReset() {
   const zi=editorSelectedZone; if(zi<0)return;
   const ovr=labelOverrides[editorIdx];
